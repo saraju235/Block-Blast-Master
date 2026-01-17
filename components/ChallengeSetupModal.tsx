@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { X, Trophy, Users, Swords, Copy, Coins, Loader2, Play, DoorOpen } from 'lucide-react';
+import { X, Trophy, Users, Swords, Copy, Coins, Loader2, Play, DoorOpen, Lock } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface ChallengeSetupModalProps {
@@ -33,6 +34,7 @@ export const ChallengeSetupModal: React.FC<ChallengeSetupModalProps> = ({
   if (!isOpen) return null;
 
   const stakes = [100, 200, 300, 500];
+  const isGuest = !user.isGoogleLinked;
 
   const handleJoinRoom = () => {
      if (roomCode.length > 3) {
@@ -82,6 +84,21 @@ export const ChallengeSetupModal: React.FC<ChallengeSetupModalProps> = ({
         </div>
 
         <div className="p-6">
+          {/* Guest Lock Overlay */}
+          {isGuest && (
+             <div className="absolute inset-0 z-20 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-center p-6 mt-[200px]">
+                <Lock size={40} className="text-red-400 mb-2" />
+                <h3 className="text-xl font-bold text-white mb-1">Login Required</h3>
+                <p className="text-white/60 text-sm mb-4">Guest accounts cannot play Ranked or Friendly matches.</p>
+                <button 
+                   onClick={onClose} 
+                   className="px-6 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white font-bold"
+                >
+                   Go Back
+                </button>
+             </div>
+          )}
+
           {tab === 'MATCH' && (
             <div className="grid grid-cols-2 gap-4">
                {stakes.map(stake => {
@@ -89,7 +106,7 @@ export const ChallengeSetupModal: React.FC<ChallengeSetupModalProps> = ({
                  return (
                    <button
                      key={stake}
-                     disabled={!canAfford}
+                     disabled={!canAfford || isGuest}
                      onClick={() => {
                         startChallenge(stake);
                         onClose();
@@ -128,7 +145,7 @@ export const ChallengeSetupModal: React.FC<ChallengeSetupModalProps> = ({
                           />
                           <button 
                             onClick={handleJoinRoom}
-                            disabled={roomCode.length < 4}
+                            disabled={roomCode.length < 4 || isGuest}
                             className="px-6 bg-indigo-600 text-white font-bold rounded-lg disabled:opacity-50"
                           >
                             JOIN
@@ -143,7 +160,8 @@ export const ChallengeSetupModal: React.FC<ChallengeSetupModalProps> = ({
 
                     <button 
                       onClick={generateRoom}
-                      className="w-full py-4 bg-white/10 border border-white/10 rounded-xl text-white font-bold hover:bg-white/15 transition-colors"
+                      disabled={isGuest}
+                      className="w-full py-4 bg-white/10 border border-white/10 rounded-xl text-white font-bold hover:bg-white/15 transition-colors disabled:opacity-50"
                     >
                       Create Private Room (Free)
                     </button>

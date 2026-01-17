@@ -80,6 +80,8 @@ export interface DailyMission {
 export interface UserProfile {
   username: string;
   avatarUrl?: string;
+  isGoogleLinked?: boolean; // Added for Google Auth
+  hasCompletedOnboarding?: boolean; // New flag for initial install flow
   coins: number;
   highScore: number;
   inventory: {

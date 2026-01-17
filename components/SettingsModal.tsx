@@ -1,8 +1,9 @@
 
 import React, { useState } from 'react';
-import { X, Volume2, VolumeX, Smartphone, Monitor, User, Info, Palette, Lock, CheckCircle, Video, Coins, Star, Trophy, Medal } from 'lucide-react';
+import { X, Volume2, VolumeX, Smartphone, Monitor, User, Info, Palette, Lock, CheckCircle, Video, Coins, Star, Trophy, Medal, LogOut } from 'lucide-react';
 import { GameSettings, UserProfile, ThemeId, Theme } from '../types';
 import { THEMES, ACHIEVEMENTS_DATA } from '../constants';
+import { GoogleSignInBtn } from './GoogleSignInBtn';
 import confetti from 'canvas-confetti';
 
 interface SettingsModalProps {
@@ -18,16 +19,19 @@ interface SettingsModalProps {
   watchAd: (type: 'COINS') => void;
   adsWatchedToday: number;
   claimAchievement: (id: string, tier: 0 | 1 | 2) => boolean;
+  signInWithGoogle?: () => Promise<void>;
+  signOutGoogle?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
-  isOpen, onClose, settings, setSettings, user, setUser, activeThemeId, setActiveThemeId, buyTheme, watchAd, adsWatchedToday, claimAchievement
+  isOpen, onClose, settings, setSettings, user, setUser, activeThemeId, setActiveThemeId, buyTheme, watchAd, adsWatchedToday, claimAchievement, signInWithGoogle, signOutGoogle
 }) => {
   const [tab, setTab] = useState<'GENERAL' | 'THEMES' | 'ACHIEVEMENTS' | 'DEV'>('GENERAL');
   
   // Modal Overlay States
   const [overlayState, setOverlayState] = useState<'NONE' | 'SUCCESS' | 'NO_FUNDS'>('NONE');
   const [selectedTheme, setSelectedTheme] = useState<Theme | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
 
   if (!isOpen) return null;
 
@@ -77,6 +81,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
      closeOverlay(); 
   };
 
+  const handleGoogleSignIn = async () => {
+      if (signInWithGoogle) {
+          setIsSigningIn(true);
+          await signInWithGoogle();
+          setIsSigningIn(false);
+      }
+  };
+
   const formatValue = (val: number, id: string) => {
     if (id === 'play_time') {
       return `${Math.floor(val / 60)}m`;
@@ -112,15 +124,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Profile */}
               <div>
                 <label className="text-xs text-white/50 uppercase tracking-wider font-bold mb-2 block">Player Profile</label>
+                
+                {user.isGoogleLinked ? (
+                    <div className="bg-green-500/10 border border-green-500/30 p-3 rounded-lg mb-4 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <img src={user.avatarUrl} className="w-8 h-8 rounded-full" alt="Profile" />
+                            <div className="flex flex-col">
+                                <span className="text-xs font-bold text-green-400">Connected with Google</span>
+                                <span className="text-[10px] text-white/50">{user.username}</span>
+                            </div>
+                        </div>
+                        {signOutGoogle && (
+                            <button onClick={signOutGoogle} className="p-2 hover:bg-white/10 rounded-full text-white/50 hover:text-white" title="Disconnect">
+                                <LogOut size={16} />
+                            </button>
+                        )}
+                    </div>
+                ) : (
+                    <div className="mb-4">
+                        <GoogleSignInBtn onClick={handleGoogleSignIn} isLoading={isSigningIn} />
+                    </div>
+                )}
+
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">
-                    <User size={24} />
+                  <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center overflow-hidden">
+                    {user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <User size={24} />}
                   </div>
                   <input 
                     type="text" 
                     value={user.username} 
                     onChange={handleNameChange}
-                    className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                    disabled={!!user.isGoogleLinked}
+                    className={`flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 ${user.isGoogleLinked ? 'opacity-50' : ''}`}
+                    placeholder="Enter Username"
                   />
                 </div>
 
@@ -304,18 +340,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {tab === 'DEV' && (
             <div className="flex flex-col items-center justify-center text-center py-8">
-               <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 p-1 shadow-xl mb-4">
+               <div className="w-32 h-32 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 p-1.5 shadow-[0_0_30px_rgba(168,85,247,0.4)] mb-6 hover:scale-105 transition-transform duration-300">
                  <img 
-                   src="https://api.dicebear.com/7.x/avataaars/svg?seed=Taiyeba&gender=female" 
-                   alt="Developer" 
-                   className="w-full h-full rounded-full bg-white"
+                   src="https://img.wapka.org/00gsw3.jpeg" 
+                   alt="Taiyeba Afrin" 
+                   className="w-full h-full rounded-full bg-slate-800 object-cover border-4 border-white/10"
                  />
                </div>
-               <h3 className="text-2xl font-bold text-white mb-1">Taiyeba Afrin</h3>
-               <p className="text-white/50 text-sm">Lead Developer</p>
-               <div className="mt-6 p-4 bg-white/5 rounded-xl text-xs text-white/40 max-w-xs">
-                 Block Blast Master v1.0.0
-                 <br/>Built with React & Tailwind
+               
+               <h3 className="text-3xl font-black text-white mb-2 tracking-tight">Taiyeba Afrin</h3>
+               
+               <div className="flex items-center gap-2 mb-1">
+                   <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+                       Lead Developer
+                   </span>
+               </div>
+               
+               <p className="text-white/60 font-medium mb-6">Age: 11 Years</p>
+               
+               <div className="w-full max-w-xs bg-white/5 border border-white/10 rounded-2xl p-4 backdrop-blur-sm">
+                   <div className="flex items-center justify-between mb-2">
+                       <span className="text-xs font-bold text-white/40 uppercase">Version</span>
+                       <span className="text-xs font-mono font-bold text-white">v1.0.0</span>
+                   </div>
+                   <div className="h-px bg-white/10 w-full mb-2"></div>
                </div>
             </div>
           )}

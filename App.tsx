@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Settings, Play, Trophy, RotateCcw, Coins, Video, User, WifiOff, Plus, Wifi, Gift, Swords, Clock, Flag, AlertTriangle, Target, Crown, BarChart2 } from 'lucide-react';
+import { Settings, Play, Trophy, RotateCcw, Coins, Video, User, WifiOff, Plus, Wifi, Gift, Swords, Clock, Flag, AlertTriangle, Target, Crown, BarChart2, ArrowLeft, LogOut, CheckCircle } from 'lucide-react';
 import { useGameEngine } from './hooks/useGameEngine';
 import { BlockPiece } from './components/BlockPiece';
 import { SettingsModal } from './components/SettingsModal';
@@ -10,6 +10,7 @@ import { DailyMissionsModal } from './components/DailyMissionsModal';
 import { LeaderboardModal } from './components/LeaderboardModal';
 import { BannerAd } from './components/BannerAd';
 import { RewardedAd } from './components/RewardedAd';
+import { GoogleSignInBtn } from './components/GoogleSignInBtn';
 import { DragState, DraggableBlock } from './types';
 import { BOARD_SIZE, ADMOB_IDS } from './constants';
 
@@ -34,6 +35,10 @@ export default function App() {
     surrenderMatch,
     claimAchievement,
     claimMissionReward,
+    signInWithGoogle,
+    signOutGoogle,
+    playAsGuest,
+    quitCurrentMatch,
     animatingCells,
     floatingTexts,
     isInputLocked,
@@ -47,6 +52,7 @@ export default function App() {
   const [showChallengeSetup, setShowChallengeSetup] = useState(false);
   const [showMissions, setShowMissions] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
   
   // Network State
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -56,6 +62,9 @@ export default function App() {
   
   // Ad Reward State
   const [adRewardEarned, setAdRewardEarned] = useState(false);
+
+  // Google Sign In Loading State
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
 
   // Responsive sizing
   const [boardSizePx, setBoardSizePx] = useState(300);
@@ -100,6 +109,24 @@ export default function App() {
       } else {
           setShowInterstitial(false);
       }
+  };
+  
+  const handleGoogleSignIn = async () => {
+      if (signInWithGoogle) {
+          setIsGoogleSigningIn(true);
+          await signInWithGoogle();
+          setIsGoogleSigningIn(false);
+      }
+  };
+
+  const handleBackNavigation = () => {
+    setShowExitConfirm(true);
+  };
+
+  const confirmExitGame = () => {
+    quitCurrentMatch();
+    setShowExitConfirm(false);
+    setScreen('MENU');
   };
 
   const cellSize = boardSizePx / BOARD_SIZE;
@@ -295,6 +322,50 @@ export default function App() {
   // Check if any missions are claimable to show a dot
   const hasClaimableMissions = user.dailyMissions.some(m => !m.isClaimed && m.progress >= m.target);
 
+  // --- ONBOARDING VIEW ---
+  if (!user.hasCompletedOnboarding) {
+      return (
+          <div className="min-h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white p-6 animate-fade-in">
+              <div className="w-full max-w-sm flex flex-col items-center text-center space-y-8">
+                  {/* Logo Animation */}
+                  <div className="relative mb-4">
+                      <div className="absolute inset-0 bg-blue-500 rounded-full blur-3xl opacity-20 animate-pulse"></div>
+                      <div className="w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl rotate-12 flex items-center justify-center shadow-2xl relative z-10">
+                          <Trophy size={48} className="text-white drop-shadow-md" />
+                      </div>
+                  </div>
+
+                  <div>
+                      <h1 className="text-4xl font-black mb-2 tracking-tight">Block Blast<br/><span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">Master</span></h1>
+                      <p className="text-slate-400 text-lg">The ultimate puzzle challenge awaits!</p>
+                  </div>
+
+                  <div className="w-full space-y-4 pt-4">
+                      {/* Google Sign In */}
+                      <div className="w-full flex justify-center">
+                          <GoogleSignInBtn onClick={handleGoogleSignIn} isLoading={isGoogleSigningIn} />
+                      </div>
+
+                      <div className="relative flex items-center justify-center py-2">
+                         <div className="h-px bg-white/10 w-full absolute"></div>
+                         <span className="relative bg-slate-900 px-2 text-white/30 text-xs font-bold uppercase">Or</span>
+                      </div>
+
+                      <button 
+                         onClick={playAsGuest}
+                         className="w-full py-3 rounded-lg border border-white/10 hover:bg-white/5 text-slate-300 font-bold transition-colors"
+                      >
+                         Play as Guest
+                      </button>
+                      <p className="text-xs text-slate-500 mt-2">
+                          *Guest accounts cannot access Ranked Matches.
+                      </p>
+                  </div>
+              </div>
+          </div>
+      );
+  }
+
   return (
     <div className={`min-h-screen w-full flex flex-col relative overflow-hidden transition-colors duration-500 ${bgClass}`} style={appStyle}>
       
@@ -312,6 +383,8 @@ export default function App() {
         watchAd={watchAd}
         adsWatchedToday={adsWatchedToday}
         claimAchievement={claimAchievement}
+        signInWithGoogle={signInWithGoogle}
+        signOutGoogle={signOutGoogle}
       />
 
       {showDailyReward && (
@@ -342,6 +415,33 @@ export default function App() {
          onClose={() => setShowLeaderboard(false)}
          user={user}
       />
+      
+      {/* --- Exit Confirmation Modal --- */}
+      {showExitConfirm && (
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in">
+           <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
+               <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <LogOut className="text-red-500" size={32} />
+               </div>
+               <h3 className="text-xl font-bold text-white mb-2">Exit Match?</h3>
+               <p className="text-white/60 mb-6 text-sm">Your progress and profile stats will be saved, but the current game board will be lost.</p>
+               <div className="flex gap-3">
+                  <button 
+                     onClick={() => setShowExitConfirm(false)}
+                     className="flex-1 py-3 bg-white/10 hover:bg-white/20 rounded-xl font-bold text-white transition-colors"
+                  >
+                     Resume
+                  </button>
+                  <button 
+                     onClick={confirmExitGame}
+                     className="flex-1 py-3 bg-red-600 hover:bg-red-700 rounded-xl font-bold text-white transition-colors"
+                  >
+                     Exit
+                  </button>
+               </div>
+           </div>
+        </div>
+      )}
 
       {/* --- Simulated AdMob Rewarded/Interstitial --- */}
       {(showInterstitial || showRewarded) && (
@@ -425,8 +525,8 @@ export default function App() {
               <div className="flex items-center gap-2">
                   {/* Profile Pill */}
                   <div className="flex items-center gap-2 px-3 py-1.5 bg-black/40 backdrop-blur-md rounded-full border border-white/10 shadow-lg cursor-pointer hover:bg-white/5 transition-colors" onClick={() => setShowSettings(true)}>
-                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center border border-white/20">
-                        <User size={14} className="text-white" />
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center border border-white/20 overflow-hidden">
+                        {user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <User size={14} className="text-white" />}
                     </div>
                     <span className="font-bold text-sm text-white pr-1 truncate max-w-[80px] sm:max-w-none">{user.username}</span>
                   </div>
@@ -577,6 +677,14 @@ export default function App() {
           {gameMode !== 'CHALLENGE' ? (
              <div className="w-full max-w-md px-4 py-4 flex items-center justify-between">
                 <div className="flex gap-4">
+                   {/* Back Navigation Button */}
+                   <button 
+                     onClick={handleBackNavigation}
+                     className="w-10 h-10 rounded-full glass-panel flex items-center justify-center hover:bg-white/10 transition-colors mr-2"
+                   >
+                      <ArrowLeft size={20} className="text-white" />
+                   </button>
+
                    <div className="glass-panel px-4 py-2 rounded-xl flex flex-col items-center min-w-[80px]">
                       <span className="text-[10px] uppercase font-bold text-white/50 tracking-wider">Score</span>
                       <span className="text-2xl font-black text-white leading-none">{score}</span>

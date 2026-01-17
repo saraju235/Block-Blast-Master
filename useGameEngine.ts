@@ -61,8 +61,7 @@ export const useGameEngine = () => {
       claimedAchievements: [],
       missionDate: '',
       dailyMissions: [],
-      isGoogleLinked: false,
-      hasCompletedOnboarding: false
+      isGoogleLinked: false
     };
     
     if (!parsed.lastDailyRewardClaim) parsed.lastDailyRewardClaim = '';
@@ -74,8 +73,6 @@ export const useGameEngine = () => {
     if (!parsed.claimedAchievements) parsed.claimedAchievements = [];
     if (!parsed.dailyMissions) parsed.dailyMissions = [];
     if (typeof parsed.isGoogleLinked === 'undefined') parsed.isGoogleLinked = false;
-    // For legacy users who already played but don't have this flag, assume they finished onboarding
-    if (typeof parsed.hasCompletedOnboarding === 'undefined') parsed.hasCompletedOnboarding = true; 
 
     return parsed;
   });
@@ -291,7 +288,6 @@ export const useGameEngine = () => {
             setUser(prev => ({
                 ...prev,
                 isGoogleLinked: true,
-                hasCompletedOnboarding: true,
                 username: "Google Player", // Simulate fetch
                 avatarUrl: "https://lh3.googleusercontent.com/a/default-user=s96-c"
             }));
@@ -299,16 +295,6 @@ export const useGameEngine = () => {
             resolve();
         }, 1500);
     });
-  };
-
-  const playAsGuest = () => {
-      setUser(prev => ({
-          ...prev,
-          isGoogleLinked: false,
-          hasCompletedOnboarding: true,
-          username: "Guest Player",
-          avatarUrl: undefined
-      }));
   };
 
   const signOutGoogle = () => {
@@ -723,17 +709,6 @@ export const useGameEngine = () => {
     setTargetCells(new Set());
   };
 
-  // Called when user actively quits a match via the confirmation dialog
-  const quitCurrentMatch = () => {
-      // Logic to "save profile" is handled implicitly by state updates in updateScore
-      // But we ensure strict saving here if needed.
-      // For now, reset game and return to menu state handled by UI
-      // If we wanted to add current score to coins or something:
-      // const coinsEarned = Math.floor(score / 100);
-      // incrementCoins(coinsEarned); 
-      resetGame();
-  };
-
   const startChallenge = (stake: number, isRoom: boolean = false, roomCode?: string) => {
     const finalStake = isRoom ? 0 : stake;
     
@@ -907,8 +882,6 @@ export const useGameEngine = () => {
     claimMissionReward,
     signInWithGoogle,
     signOutGoogle,
-    playAsGuest,
-    quitCurrentMatch,
     // New exports for UI
     animatingCells, 
     floatingTexts,
