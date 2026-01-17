@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Trophy, Users, Swords, Copy, Coins, Loader2, Play, DoorOpen, Lock } from 'lucide-react';
+import { X, Trophy, Users, Swords, Copy, Coins, Loader2, Play, DoorOpen, Lock, Clock, AlertCircle } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface ChallengeSetupModalProps {
@@ -17,19 +17,38 @@ export const ChallengeSetupModal: React.FC<ChallengeSetupModalProps> = ({
   const [roomCode, setRoomCode] = useState('');
   const [generatedCode, setGeneratedCode] = useState('');
   const [friendJoined, setFriendJoined] = useState(false);
+  const [waitingTime, setWaitingTime] = useState(180); // 3 minutes in seconds
 
-  // Simulation: When room is generated, simulate friend joining after delay
+  const closeRoom = () => {
+    setGeneratedCode('');
+    setFriendJoined(false);
+    setWaitingTime(180);
+  };
+
+  // Timeout Logic
   useEffect(() => {
     let timer: number;
-    if (generatedCode) {
-      setFriendJoined(false);
-      // Simulate waiting 3-5 seconds for friend
-      timer = window.setTimeout(() => {
-        setFriendJoined(true);
-      }, Math.random() * 2000 + 3000); 
+    if (generatedCode && !friendJoined) {
+      if (waitingTime <= 0) {
+        // Timeout reached
+        closeRoom();
+        alert("Room timed out. No player joined.");
+        return;
+      }
+
+      timer = window.setInterval(() => {
+        setWaitingTime(prev => prev - 1);
+      }, 1000);
     }
-    return () => clearTimeout(timer);
-  }, [generatedCode]);
+    return () => clearInterval(timer);
+  }, [generatedCode, friendJoined, waitingTime]);
+
+  // Reset state when modal opens/closes
+  useEffect(() => {
+      if(!isOpen) {
+          closeRoom();
+      }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -47,11 +66,14 @@ export const ChallengeSetupModal: React.FC<ChallengeSetupModalProps> = ({
   const generateRoom = () => {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     setGeneratedCode(code);
+    setFriendJoined(false);
+    setWaitingTime(180); // Reset timer to 3 mins
   };
 
-  const closeRoom = () => {
-    setGeneratedCode('');
-    setFriendJoined(false);
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -168,18 +190,23 @@ export const ChallengeSetupModal: React.FC<ChallengeSetupModalProps> = ({
                   </div>
                 ) : (
                   <div className="text-center animate-fade-in">
-                     <p className="text-white/60 mb-4">Share this code with your friend:</p>
+                     <div className="flex items-center justify-between mb-2">
+                         <span className="text-white/60 text-xs">Room Code:</span>
+                         <span className="text-white/40 text-[10px] flex items-center gap-1">
+                             <Clock size={10} /> Closing in {formatTime(waitingTime)}
+                         </span>
+                     </div>
                      
-                     <div className={`p-6 rounded-2xl border-2 mb-6 flex flex-col items-center gap-2 transition-colors duration-300 ${friendJoined ? 'bg-green-500/10 border-green-500/50' : 'bg-black/40 border-indigo-500/50'}`}>
-                        <span className="text-4xl font-mono font-black text-white tracking-[0.5em]">{generatedCode}</span>
+                     <div className={`p-6 rounded-2xl border-2 mb-4 flex flex-col items-center gap-2 transition-colors duration-300 ${friendJoined ? 'bg-green-500/10 border-green-500/50' : 'bg-black/40 border-indigo-500/50'}`}>
+                        <span className="text-4xl font-mono font-black text-white tracking-[0.5em] select-all">{generatedCode}</span>
                         
                         {!friendJoined ? (
-                            <div className="flex items-center gap-2 text-indigo-400 animate-pulse">
+                            <div className="flex items-center gap-2 text-indigo-400 animate-pulse mt-2">
                                 <Loader2 size={16} className="animate-spin" />
                                 <span className="text-xs font-bold">WAITING FOR PLAYER...</span>
                             </div>
                         ) : (
-                            <div className="flex items-center gap-2 text-green-400 animate-bounce-in">
+                            <div className="flex items-center gap-2 text-green-400 animate-bounce-in mt-2">
                                 <Users size={16} />
                                 <span className="text-xs font-bold">FRIEND JOINED!</span>
                             </div>
@@ -188,16 +215,18 @@ export const ChallengeSetupModal: React.FC<ChallengeSetupModalProps> = ({
 
                      {/* Dynamic Action Button */}
                      {!friendJoined ? (
-                       <button 
-                          onClick={closeRoom}
-                          className="w-full py-4 bg-red-500/10 text-red-400 border border-red-500/20 font-bold rounded-xl hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2"
-                        >
-                          <DoorOpen size={20} /> CLOSE ROOM
-                        </button>
+                       <div className="space-y-3">
+                           <button 
+                              onClick={closeRoom}
+                              className="w-full py-4 bg-red-500/10 text-red-400 border border-red-500/20 font-bold rounded-xl hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2"
+                            >
+                              <DoorOpen size={20} /> CLOSE ROOM
+                            </button>
+                        </div>
                      ) : (
                        <button 
                           onClick={() => {
-                             startChallenge(0, true);
+                             startChallenge(0, true, generatedCode); // Pass generated code
                              onClose();
                           }}
                           className="w-full py-4 bg-green-600 text-white font-bold rounded-xl animate-pulse shadow-[0_0_20px_rgba(34,197,94,0.4)] flex items-center justify-center gap-2 hover:scale-105 transition-transform"
@@ -205,8 +234,6 @@ export const ChallengeSetupModal: React.FC<ChallengeSetupModalProps> = ({
                           <Play size={20} fill="currentColor" /> START MATCH
                         </button>
                      )}
-                     
-                     <p className="text-white/30 text-[10px] mt-4">Friendly matches do not require coins.</p>
                   </div>
                 )}
              </div>

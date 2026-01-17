@@ -359,23 +359,32 @@ export const useGameEngine = () => {
   // Realistic AI Scoring Logic
   useEffect(() => {
     if (gameMode !== 'CHALLENGE' || challenge.status !== 'PLAYING' || isGameOver) return;
-    if (!challenge.opponent.isAi) return; 
+    
+    // STRICT CHECK: Double ensure this never runs for a friendly room match
+    if (challenge.roomCode || !challenge.opponent.isAi) return; 
 
     let timeoutId: ReturnType<typeof setTimeout>;
 
     const simulateAiTurn = () => {
-      const thinkingTime = Math.random() * 4000 + 6000; 
+      // Thinking time: 2-4 seconds
+      const thinkingTime = Math.random() * 2000 + 2000; 
 
       timeoutId = setTimeout(() => {
         setChallenge(prev => {
           if (prev.status !== 'PLAYING' || isGameOver) return prev;
-          const isBigMove = Math.random() > 0.95;
+          
+          // 28% chance for big move
+          const isBigMove = Math.random() < 0.28;
+          
           let points = 0;
           if (isBigMove) {
+            // Big move: ~25-85 points
             const lines = Math.floor(Math.random() * 3) + 1; 
-            points = (lines * 20) + Math.floor(Math.random() * 20); 
+            // 1 line: 25-35, 2 lines: 50-60, 3 lines: 75-85
+            points = (lines * 25) + Math.floor(Math.random() * 11);
           } else {
-            points = Math.floor(Math.random() * 15) + 2;
+            // Regular move: 4-20 points
+            points = Math.floor(Math.random() * 16) + 4;
           }
           return {
             ...prev,
@@ -388,7 +397,7 @@ export const useGameEngine = () => {
 
     simulateAiTurn();
     return () => clearTimeout(timeoutId);
-  }, [gameMode, challenge.status, isGameOver, challenge.opponent.isAi]);
+  }, [gameMode, challenge.status, isGameOver, challenge.opponent.isAi, challenge.roomCode]);
 
   // Calculate Challenge Result on Game Over
   useEffect(() => {
@@ -430,19 +439,53 @@ export const useGameEngine = () => {
     }
   }, [tray, isGameOver, isInputLocked, getWeightedBlock, currentLevel]);
 
-  // Check Game Over logic (Classic & Offline)
-  useEffect(() => {
-    if (isGameOver || gameMode === 'CHALLENGE' || isInputLocked) return; 
-    checkStuckCondition();
-  }, [grid, tray, isGameOver, gameMode, isInputLocked]);
+  // --- Gameplay Methods (Defined before usage in checkStuckCondition) ---
 
-  // Check stuck condition for Challenge Mode
-  useEffect(() => {
-    if (gameMode === 'CHALLENGE' && !isGameOver && challenge.status === 'PLAYING' && !isInputLocked) {
-      checkStuckCondition();
+  const canPlaceBlock = (currentGrid: Grid, shape: number[][], x: number, y: number): boolean => {
+    for (let r = 0; r < shape.length; r++) {
+      for (let c = 0; c < shape[0].length; c++) {
+        if (shape[r][c] === 1) {
+          const targetX = x + c;
+          const targetY = y + r;
+          if (
+            targetX < 0 || targetX >= BOARD_SIZE || 
+            targetY < 0 || targetY >= BOARD_SIZE ||
+            currentGrid[targetY][targetX] !== null
+          ) {
+            return false;
+          }
+        }
+      }
     }
-  }, [grid, tray, isGameOver, gameMode, challenge.status, isInputLocked]);
+    return true;
+  };
 
+  const updateScore = (points: number) => {
+    setScore(prevScore => {
+       const newScore = prevScore + points;
+       
+       // Handle High Score
+       if (gameMode === 'CLASSIC') {
+           if (newScore > user.highScore) {
+               setUser(prev => ({ 
+                   ...prev, 
+                   highScore: newScore,
+                   stats: { ...prev.stats, classicHighScore: Math.max(prev.stats.classicHighScore, newScore) } 
+               }));
+           } else if (newScore > user.stats.classicHighScore) {
+               trackEvent('classicHighScore', newScore - user.stats.classicHighScore); 
+           }
+       } else if (gameMode === 'OFFLINE') {
+           if (newScore > (user.stats.offlineHighScore || 0)) {
+               setUser(prev => ({
+                   ...prev,
+                   stats: { ...prev.stats, offlineHighScore: newScore }
+               }));
+           }
+       }
+       return newScore;
+    });
+  };
 
   const checkStuckCondition = () => {
     const activeBlocks = tray.filter(b => b !== null);
@@ -475,26 +518,19 @@ export const useGameEngine = () => {
     }
   }
 
-  // --- Gameplay Methods ---
+  // Check Game Over logic (Classic & Offline)
+  useEffect(() => {
+    if (isGameOver || gameMode === 'CHALLENGE' || isInputLocked) return; 
+    checkStuckCondition();
+  }, [grid, tray, isGameOver, gameMode, isInputLocked]);
 
-  const canPlaceBlock = (currentGrid: Grid, shape: number[][], x: number, y: number): boolean => {
-    for (let r = 0; r < shape.length; r++) {
-      for (let c = 0; c < shape[0].length; c++) {
-        if (shape[r][c] === 1) {
-          const targetX = x + c;
-          const targetY = y + r;
-          if (
-            targetX < 0 || targetX >= BOARD_SIZE || 
-            targetY < 0 || targetY >= BOARD_SIZE ||
-            currentGrid[targetY][targetX] !== null
-          ) {
-            return false;
-          }
-        }
-      }
+  // Check stuck condition for Challenge Mode
+  useEffect(() => {
+    if (gameMode === 'CHALLENGE' && !isGameOver && challenge.status === 'PLAYING' && !isInputLocked) {
+      checkStuckCondition();
     }
-    return true;
-  };
+  }, [grid, tray, isGameOver, gameMode, challenge.status, isInputLocked]);
+
 
   const addFloatingText = (text: string, color: string) => {
     const id = Math.random().toString(36).substr(2, 9);
@@ -605,7 +641,8 @@ export const useGameEngine = () => {
           const streakBonus = comboStreak > 0 ? (comboStreak * 0.2) : 0;
           const totalMult = lineMult + streakBonus;
 
-          const clearScore = Math.floor((cellsClearedCount * 10) * totalMult);
+          // REDUCED SCORING FACTOR (from 10 to 3) to achieve 25-80 points per line clear base
+          const clearScore = Math.floor((cellsClearedCount * 3) * totalMult);
           const totalScoreGained = clearScore + cellsPlaced; // Add placement points
 
           // C. Visual Feedback
@@ -683,33 +720,6 @@ export const useGameEngine = () => {
     return true;
   };
 
-  const updateScore = (points: number) => {
-     setScore(prevScore => {
-        const newScore = prevScore + points;
-        
-        // Handle High Score
-        if (gameMode === 'CLASSIC') {
-            if (newScore > user.highScore) {
-                setUser(prev => ({ 
-                    ...prev, 
-                    highScore: newScore,
-                    stats: { ...prev.stats, classicHighScore: Math.max(prev.stats.classicHighScore, newScore) } 
-                }));
-            } else if (newScore > user.stats.classicHighScore) {
-                trackEvent('classicHighScore', newScore - user.stats.classicHighScore); 
-            }
-        } else if (gameMode === 'OFFLINE') {
-            if (newScore > (user.stats.offlineHighScore || 0)) {
-                setUser(prev => ({
-                    ...prev,
-                    stats: { ...prev.stats, offlineHighScore: newScore }
-                }));
-            }
-        }
-        return newScore;
-     });
-  };
-
   const resetGame = () => {
     setGrid(createEmptyGrid());
     setScore(0);
@@ -752,6 +762,9 @@ export const useGameEngine = () => {
     const randomName = botNames[Math.floor(Math.random() * botNames.length)];
     const opponentName = isRoom ? 'Friend (P2)' : randomName;
 
+    // Initial status differs for private rooms (Friend is already "there") vs Matchmaking
+    const initialStatus = isRoom ? 'VS_ANIMATION' : 'MATCHMAKING';
+
     setChallenge({
       isActive: true,
       stake: finalStake,
@@ -764,21 +777,28 @@ export const useGameEngine = () => {
       },
       roomCode,
       isHost: !roomCode, 
-      status: 'MATCHMAKING',
+      status: initialStatus,
       result: null
     });
 
     setGameMode('CHALLENGE');
     resetGame();
     
-    const searchTime = Math.random() * 4000 + 6000; 
-    
-    setTimeout(() => {
-      setChallenge(prev => ({ ...prev, status: 'VS_ANIMATION' }));
-      setTimeout(() => {
-        setChallenge(prev => ({ ...prev, status: 'PLAYING' }));
-      }, 3000);
-    }, searchTime);
+    if (isRoom) {
+        // Skip matchmaking delay for private rooms to avoid confusion
+        setTimeout(() => {
+            setChallenge(prev => ({ ...prev, status: 'PLAYING' }));
+        }, 3000); // 3 seconds for VS Animation
+    } else {
+        const searchTime = Math.random() * 4000 + 6000; 
+        
+        setTimeout(() => {
+          setChallenge(prev => ({ ...prev, status: 'VS_ANIMATION' }));
+          setTimeout(() => {
+            setChallenge(prev => ({ ...prev, status: 'PLAYING' }));
+          }, 3000);
+        }, searchTime);
+    }
 
     return true;
   };

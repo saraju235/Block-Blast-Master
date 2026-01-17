@@ -913,12 +913,26 @@ export default function App() {
                          </div>
                       </div>
                    )}
-                   <button 
-                      onClick={handleHome}
-                      className="w-full max-w-xs py-4 bg-white/10 rounded-xl font-bold text-white border border-white/20 hover:bg-white/20 transition-colors"
-                   >
-                      Return to Menu
-                   </button>
+                   
+                   {/* Handle Room Flow vs Ranked Flow */}
+                   {challenge.roomCode ? (
+                       <button 
+                         onClick={() => {
+                             handleHome();
+                             setShowChallengeSetup(true);
+                         }}
+                         className="w-full max-w-xs py-4 bg-indigo-600 rounded-xl font-bold text-white border border-indigo-400 hover:bg-indigo-500 transition-colors shadow-lg animate-pulse"
+                       >
+                          Create New Room
+                       </button>
+                   ) : (
+                       <button 
+                          onClick={handleHome}
+                          className="w-full max-w-xs py-4 bg-white/10 rounded-xl font-bold text-white border border-white/20 hover:bg-white/20 transition-colors"
+                       >
+                          Return to Menu
+                       </button>
+                   )}
                  </>
               ) : (
                  // Classic / Offline Game Over
