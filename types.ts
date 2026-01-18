@@ -1,5 +1,4 @@
 
-
 export type Cell = string | null; // Color hex or null
 export type Grid = Cell[][];
 export type BlockShape = number[][]; // 0/1 matrix
@@ -82,8 +81,9 @@ export interface DailyMission {
 export interface UserProfile {
   username: string;
   avatarUrl?: string;
-  isGoogleLinked?: boolean; // Added for Google Auth
-  hasCompletedOnboarding?: boolean; // New flag for initial install flow
+  email?: string; // Added for Email Auth
+  isGoogleLinked?: boolean; 
+  hasCompletedOnboarding?: boolean; 
   coins: number;
   highScore: number;
   inventory: {

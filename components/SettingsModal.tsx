@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { X, Volume2, VolumeX, Smartphone, Monitor, User, Info, Palette, Lock, CheckCircle, Video, Coins, Star, Trophy, Medal, LogOut, Edit2, Camera, Upload } from 'lucide-react';
+import { X, Volume2, VolumeX, Smartphone, Monitor, User, Info, Palette, Lock, CheckCircle, Video, Coins, Star, Trophy, Medal, LogOut, Edit2, Camera, Upload, Mail } from 'lucide-react';
 import { GameSettings, UserProfile, ThemeId, Theme } from '../types';
 import { THEMES, ACHIEVEMENTS_DATA } from '../constants';
 import { GoogleSignInBtn } from './GoogleSignInBtn';
@@ -173,7 +173,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <div className="flex items-center gap-2">
                             <img src={user.avatarUrl} className="w-8 h-8 rounded-full" alt="Profile" />
                             <div className="flex flex-col">
-                                <span className="text-xs font-bold text-green-400">Connected with Google</span>
+                                {user.email ? (
+                                    <span className="text-xs font-bold text-green-400 flex items-center gap-1">
+                                        <Mail size={10} /> {user.email}
+                                    </span>
+                                ) : (
+                                    <span className="text-xs font-bold text-green-400">Connected with Google</span>
+                                )}
                                 <span className="text-[10px] text-white/50">{user.username}</span>
                             </div>
                         </div>
@@ -184,7 +190,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         )}
                     </div>
                 ) : (
-                    <div className="mb-4">
+                    <div className="mb-4 text-center">
+                        <p className="text-xs text-white/50 mb-2">Sign in to save progress and access leaderboards.</p>
                         <GoogleSignInBtn onClick={handleGoogleSignIn} isLoading={isSigningIn} />
                     </div>
                 )}

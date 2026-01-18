@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { GameMode, Grid, DraggableBlock, UserProfile, GameSettings, Theme, ThemeId, ChallengeState, UserStats, MissionType, DailyMission, FloatingText } from '../types';
 import { BOARD_SIZE, SHAPES_EASY, SHAPES_MEDIUM, SHAPES_HARD, THEMES, ACHIEVEMENTS_DATA, DAILY_MISSION_TEMPLATES } from '../constants';
@@ -64,6 +65,7 @@ export const useGameEngine = () => {
     const parsed = saved ? JSON.parse(saved) : {
       username: generateRandomUsername(), 
       avatarUrl: '',
+      email: '',
       coins: 100,
       highScore: 0,
       inventory: { themes: ['default'] },
@@ -122,10 +124,10 @@ export const useGameEngine = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
         if (session && session.user) {
             // If we just logged in, fetch profile
-            // We check if we already have this user linked to avoid refetching loop
-            if (!user.isGoogleLinked) {
-                fetchProfile(session.user);
-            }
+            // We ensure we fetch even if we think we are linked, to sync latest state
+            fetchProfile(session.user);
+        } else if (!session) {
+            // Handle explicit sign out state if needed
         }
     });
 
@@ -145,7 +147,7 @@ export const useGameEngine = () => {
               // Profile doesn't exist, create it from local state
               const newProfile = {
                   id: supabaseUser.id,
-                  username: user.username, // Use current local name or google name?
+                  username: user.username, // Use current local name
                   avatar_url: supabaseUser.user_metadata.avatar_url || user.avatarUrl,
                   coins: user.coins,
                   high_score: user.highScore,
@@ -163,8 +165,8 @@ export const useGameEngine = () => {
               if (!insertError) {
                   setUser(prev => ({
                       ...prev,
-                      isGoogleLinked: true,
-                      // If google provided an avatar and we didn't have one, use it
+                      isGoogleLinked: true, // Used as general "is authenticated" flag
+                      email: supabaseUser.email,
                       avatarUrl: prev.avatarUrl || supabaseUser.user_metadata.avatar_url,
                   }));
               }
@@ -173,6 +175,7 @@ export const useGameEngine = () => {
               setUser(prev => ({
                   ...prev,
                   isGoogleLinked: true,
+                  email: supabaseUser.email,
                   username: data.username || prev.username,
                   avatarUrl: data.avatar_url || prev.avatarUrl,
                   coins: data.coins,
@@ -183,7 +186,8 @@ export const useGameEngine = () => {
                   missionDate: data.mission_date,
                   lastDailyRewardClaim: data.last_daily_reward_claim,
                   dailyStreak: data.daily_streak,
-                  claimedAchievements: data.claimed_achievements || []
+                  claimedAchievements: data.claimed_achievements || [],
+                  hasCompletedOnboarding: true // Ensure they skip onboarding if profile exists
               }));
           }
       } catch (err) {
@@ -446,7 +450,6 @@ export const useGameEngine = () => {
   };
 
   const signInWithGoogle = async () => {
-      // Real Supabase Auth
       const { error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
       });
@@ -454,8 +457,31 @@ export const useGameEngine = () => {
           console.error("Supabase Login Error:", error.message);
           alert("Login failed: " + error.message);
       }
-      // Note: The app will redirect, so no need to resolve/setState here usually.
-      // Supabase handles the redirect callback.
+  };
+
+  // --- Email Auth Handlers ---
+  const signUpWithEmail = async (email: string, password: string): Promise<{error: string | null}> => {
+      const { data, error } = await supabase.auth.signUp({
+          email,
+          password
+      });
+      
+      if (error) return { error: error.message };
+      
+      // If sign up is successful, Supabase usually returns a user.
+      // We rely on the `onAuthStateChange` listener to actually set the app state and fetch/create profile.
+      // Note: If email confirmation is enabled in Supabase, the user won't be fully logged in until they verify.
+      
+      return { error: null };
+  };
+
+  const signInWithEmail = async (email: string, password: string): Promise<{error: string | null}> => {
+      const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password
+      });
+      if (error) return { error: error.message };
+      return { error: null };
   };
 
   const playAsGuest = () => {
@@ -464,7 +490,8 @@ export const useGameEngine = () => {
           isGoogleLinked: false,
           hasCompletedOnboarding: true,
           username: prev.username || generateRandomUsername(), // Keep existing random name if there
-          avatarUrl: undefined
+          avatarUrl: undefined,
+          email: undefined
       }));
   };
 
@@ -475,6 +502,7 @@ export const useGameEngine = () => {
           isGoogleLinked: false,
           username: generateRandomUsername(), // Reset to random guest
           avatarUrl: undefined,
+          email: undefined
           // We could optionally reset stats, but usually games keep local progress
       }));
   };
@@ -869,7 +897,7 @@ export const useGameEngine = () => {
       resetGame();
   };
 
-  // --- New Handlers (Missing in initial code) ---
+  // --- New Handlers ---
   
   const handleStartGame = (mode: 'CLASSIC' | 'OFFLINE') => {
     setGameMode(mode);
@@ -1053,6 +1081,8 @@ export const useGameEngine = () => {
     claimAchievement,
     claimMissionReward,
     signInWithGoogle,
+    signInWithEmail,
+    signUpWithEmail,
     signOutGoogle,
     playAsGuest,
     quitCurrentMatch,

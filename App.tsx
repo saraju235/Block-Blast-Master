@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Settings, Play, Trophy, RotateCcw, Coins, Video, User, WifiOff, Plus, Wifi, Gift, Swords, Clock, Flag, AlertTriangle, Target, Crown, BarChart2, ArrowLeft, LogOut, CheckCircle } from 'lucide-react';
+import { Settings, Play, Trophy, RotateCcw, Coins, Video, User, WifiOff, Plus, Wifi, Gift, Swords, Clock, Flag, AlertTriangle, Target, Crown, BarChart2, ArrowLeft, LogOut, CheckCircle, Mail } from 'lucide-react';
 import { useGameEngine } from './hooks/useGameEngine';
 import { BlockPiece } from './components/BlockPiece';
 import { SettingsModal } from './components/SettingsModal';
@@ -11,6 +11,7 @@ import { LeaderboardModal } from './components/LeaderboardModal';
 import { BannerAd } from './components/BannerAd';
 import { RewardedAd } from './components/RewardedAd';
 import { GoogleSignInBtn } from './components/GoogleSignInBtn';
+import { AuthModal } from './components/AuthModal';
 import { DragState, DraggableBlock } from './types';
 import { BOARD_SIZE, ADMOB_IDS } from './constants';
 
@@ -36,6 +37,8 @@ export default function App() {
     claimAchievement,
     claimMissionReward,
     signInWithGoogle,
+    signInWithEmail,
+    signUpWithEmail,
     signOutGoogle,
     playAsGuest,
     quitCurrentMatch,
@@ -57,6 +60,7 @@ export default function App() {
   const [showMissions, setShowMissions] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   
   // Network State
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -330,6 +334,13 @@ export default function App() {
   if (!user.hasCompletedOnboarding) {
       return (
           <div className="min-h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white p-6 animate-fade-in">
+              <AuthModal 
+                  isOpen={showAuthModal} 
+                  onClose={() => setShowAuthModal(false)}
+                  onSignIn={signInWithEmail}
+                  onSignUp={signUpWithEmail}
+              />
+              
               <div className="w-full max-w-sm flex flex-col items-center text-center space-y-8">
                   {/* Logo Animation */}
                   <div className="relative mb-4">
@@ -349,6 +360,15 @@ export default function App() {
                       <div className="w-full flex justify-center">
                           <GoogleSignInBtn onClick={handleGoogleSignIn} isLoading={isGoogleSigningIn} />
                       </div>
+
+                      {/* Email Sign In Button */}
+                      <button 
+                         onClick={() => setShowAuthModal(true)}
+                         className="w-full py-2.5 rounded-lg border border-white/20 bg-white/5 hover:bg-white/10 text-white font-bold transition-colors flex items-center justify-center gap-2"
+                      >
+                         <Mail size={18} />
+                         Sign in with Email
+                      </button>
 
                       <div className="relative flex items-center justify-center py-2">
                          <div className="h-px bg-white/10 w-full absolute"></div>
