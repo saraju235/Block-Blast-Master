@@ -16,6 +16,17 @@ const getDaysDifference = (date1: string, date2: string) => {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
 };
 
+// --- Random Name Generator ---
+const ADJECTIVES = ['Swift', 'Brave', 'Cosmic', 'Neon', 'Epic', 'Lucky', 'Hyper', 'Shadow', 'Pixel', 'Turbo', 'Mighty', 'Frozen'];
+const NOUNS = ['Panda', 'Tiger', 'Ninja', 'Falcon', 'Ghost', 'Wizard', 'Knight', 'Rocket', 'Dragon', 'Eagle', 'Wolf', 'Star'];
+
+const generateRandomUsername = () => {
+  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+  const num = Math.floor(Math.random() * 999);
+  return `${adj}${noun}${num}`;
+};
+
 // Default Stats for new users
 const DEFAULT_STATS: UserStats = {
   totalPlayTimeSeconds: 0,
@@ -27,6 +38,7 @@ const DEFAULT_STATS: UserStats = {
   challengeWins: 0,
   adsWatched: 0,
   totalCoinsEarned: 0,
+  classicCoinsEarned: 0, // New Stat
   classicHighScore: 0,
   offlineHighScore: 0,
   totalLinesCleared: 0,
@@ -50,7 +62,7 @@ export const useGameEngine = () => {
   const [user, setUser] = useState<UserProfile>(() => {
     const saved = localStorage.getItem('bbm_user');
     const parsed = saved ? JSON.parse(saved) : {
-      username: 'Player 1',
+      username: generateRandomUsername(), // Use random generator
       avatarUrl: '',
       coins: 100,
       highScore: 0,
@@ -61,7 +73,8 @@ export const useGameEngine = () => {
       claimedAchievements: [],
       missionDate: '',
       dailyMissions: [],
-      isGoogleLinked: false
+      isGoogleLinked: false,
+      hasCompletedOnboarding: false
     };
     
     if (!parsed.lastDailyRewardClaim) parsed.lastDailyRewardClaim = '';
@@ -69,10 +82,18 @@ export const useGameEngine = () => {
     if (!parsed.stats) parsed.stats = DEFAULT_STATS;
     else {
         if (typeof parsed.stats.offlineHighScore === 'undefined') parsed.stats.offlineHighScore = 0;
+        if (typeof parsed.stats.classicCoinsEarned === 'undefined') parsed.stats.classicCoinsEarned = 0;
     }
     if (!parsed.claimedAchievements) parsed.claimedAchievements = [];
     if (!parsed.dailyMissions) parsed.dailyMissions = [];
     if (typeof parsed.isGoogleLinked === 'undefined') parsed.isGoogleLinked = false;
+    // For legacy users who already played but don't have this flag, assume they finished onboarding
+    if (typeof parsed.hasCompletedOnboarding === 'undefined') parsed.hasCompletedOnboarding = true; 
+    
+    // Ensure legacy users get a random name if they still have "Player 1"
+    if (parsed.username === 'Player 1') {
+        parsed.username = generateRandomUsername();
+    }
 
     return parsed;
   });
@@ -250,13 +271,17 @@ export const useGameEngine = () => {
       });
   };
 
-  const incrementCoins = (amount: number) => {
+  // Updated incrementCoins to handle Coin Rank logic
+  const incrementCoins = (amount: number, source: 'CLASSIC' | 'OTHER' = 'OTHER') => {
      setUser(prev => ({
         ...prev,
         coins: prev.coins + amount,
         stats: {
            ...prev.stats,
-           totalCoinsEarned: prev.stats.totalCoinsEarned + amount
+           totalCoinsEarned: prev.stats.totalCoinsEarned + amount,
+           classicCoinsEarned: source === 'CLASSIC' 
+               ? (prev.stats.classicCoinsEarned || 0) + amount 
+               : (prev.stats.classicCoinsEarned || 0)
         }
      }));
   };
@@ -282,12 +307,34 @@ export const useGameEngine = () => {
       return false;
   };
 
+  const updateUsername = (name: string) => {
+    setUser(prev => ({ ...prev, username: name }));
+  };
+
+  const updateAvatar = (url: string) => {
+    setUser(prev => ({ ...prev, avatarUrl: url }));
+  };
+
+  const purchaseCustomAvatar = (imageBase64: string): boolean => {
+    if (user.coins >= 1000) {
+       setUser(prev => ({
+          ...prev,
+          coins: prev.coins - 1000,
+          avatarUrl: imageBase64
+       }));
+       if (settings.soundEnabled) playSound('perfect');
+       return true;
+    }
+    return false;
+  };
+
   const signInWithGoogle = () => {
     return new Promise<void>((resolve) => {
         setTimeout(() => {
             setUser(prev => ({
                 ...prev,
                 isGoogleLinked: true,
+                hasCompletedOnboarding: true,
                 username: "Google Player", // Simulate fetch
                 avatarUrl: "https://lh3.googleusercontent.com/a/default-user=s96-c"
             }));
@@ -297,11 +344,21 @@ export const useGameEngine = () => {
     });
   };
 
+  const playAsGuest = () => {
+      setUser(prev => ({
+          ...prev,
+          isGoogleLinked: false,
+          hasCompletedOnboarding: true,
+          username: generateRandomUsername(),
+          avatarUrl: undefined
+      }));
+  };
+
   const signOutGoogle = () => {
       setUser(prev => ({
           ...prev,
           isGoogleLinked: false,
-          username: "Player 1",
+          username: generateRandomUsername(),
           avatarUrl: undefined
       }));
   };
@@ -345,23 +402,32 @@ export const useGameEngine = () => {
   // Realistic AI Scoring Logic
   useEffect(() => {
     if (gameMode !== 'CHALLENGE' || challenge.status !== 'PLAYING' || isGameOver) return;
-    if (!challenge.opponent.isAi) return; 
+    
+    // STRICT CHECK: Double ensure this never runs for a friendly room match
+    if (challenge.roomCode || !challenge.opponent.isAi) return; 
 
     let timeoutId: ReturnType<typeof setTimeout>;
 
     const simulateAiTurn = () => {
-      const thinkingTime = Math.random() * 4000 + 6000; 
+      // Thinking time: 2-4 seconds
+      const thinkingTime = Math.random() * 2000 + 2000; 
 
       timeoutId = setTimeout(() => {
         setChallenge(prev => {
           if (prev.status !== 'PLAYING' || isGameOver) return prev;
-          const isBigMove = Math.random() > 0.95;
+          
+          // 28% chance for big move
+          const isBigMove = Math.random() < 0.28;
+          
           let points = 0;
           if (isBigMove) {
+            // Big move: ~25-85 points
             const lines = Math.floor(Math.random() * 3) + 1; 
-            points = (lines * 20) + Math.floor(Math.random() * 20); 
+            // 1 line: 25-35, 2 lines: 50-60, 3 lines: 75-85
+            points = (lines * 25) + Math.floor(Math.random() * 11);
           } else {
-            points = Math.floor(Math.random() * 15) + 2;
+            // Regular move: 4-20 points
+            points = Math.floor(Math.random() * 16) + 4;
           }
           return {
             ...prev,
@@ -374,7 +440,7 @@ export const useGameEngine = () => {
 
     simulateAiTurn();
     return () => clearTimeout(timeoutId);
-  }, [gameMode, challenge.status, isGameOver, challenge.opponent.isAi]);
+  }, [gameMode, challenge.status, isGameOver, challenge.opponent.isAi, challenge.roomCode]);
 
   // Calculate Challenge Result on Game Over
   useEffect(() => {
@@ -392,7 +458,7 @@ export const useGameEngine = () => {
       if (result === 'WIN') {
         const winnings = challenge.stake * 2;
         if (challenge.stake > 0) {
-            incrementCoins(winnings); 
+            incrementCoins(winnings, 'OTHER'); 
             trackEvent('rankedWins', 1);
         }
         trackEvent('challengeWins', 1);
@@ -416,19 +482,53 @@ export const useGameEngine = () => {
     }
   }, [tray, isGameOver, isInputLocked, getWeightedBlock, currentLevel]);
 
-  // Check Game Over logic (Classic & Offline)
-  useEffect(() => {
-    if (isGameOver || gameMode === 'CHALLENGE' || isInputLocked) return; 
-    checkStuckCondition();
-  }, [grid, tray, isGameOver, gameMode, isInputLocked]);
+  // --- Gameplay Methods (Defined before usage in checkStuckCondition) ---
 
-  // Check stuck condition for Challenge Mode
-  useEffect(() => {
-    if (gameMode === 'CHALLENGE' && !isGameOver && challenge.status === 'PLAYING' && !isInputLocked) {
-      checkStuckCondition();
+  const canPlaceBlock = (currentGrid: Grid, shape: number[][], x: number, y: number): boolean => {
+    for (let r = 0; r < shape.length; r++) {
+      for (let c = 0; c < shape[0].length; c++) {
+        if (shape[r][c] === 1) {
+          const targetX = x + c;
+          const targetY = y + r;
+          if (
+            targetX < 0 || targetX >= BOARD_SIZE || 
+            targetY < 0 || targetY >= BOARD_SIZE ||
+            currentGrid[targetY][targetX] !== null
+          ) {
+            return false;
+          }
+        }
+      }
     }
-  }, [grid, tray, isGameOver, gameMode, challenge.status, isInputLocked]);
+    return true;
+  };
 
+  const updateScore = (points: number) => {
+    setScore(prevScore => {
+       const newScore = prevScore + points;
+       
+       // Handle High Score
+       if (gameMode === 'CLASSIC') {
+           if (newScore > user.highScore) {
+               setUser(prev => ({ 
+                   ...prev, 
+                   highScore: newScore,
+                   stats: { ...prev.stats, classicHighScore: Math.max(prev.stats.classicHighScore, newScore) } 
+               }));
+           } else if (newScore > user.stats.classicHighScore) {
+               trackEvent('classicHighScore', newScore - user.stats.classicHighScore); 
+           }
+       } else if (gameMode === 'OFFLINE') {
+           if (newScore > (user.stats.offlineHighScore || 0)) {
+               setUser(prev => ({
+                   ...prev,
+                   stats: { ...prev.stats, offlineHighScore: newScore }
+               }));
+           }
+       }
+       return newScore;
+    });
+  };
 
   const checkStuckCondition = () => {
     const activeBlocks = tray.filter(b => b !== null);
@@ -461,26 +561,19 @@ export const useGameEngine = () => {
     }
   }
 
-  // --- Gameplay Methods ---
+  // Check Game Over logic (Classic & Offline)
+  useEffect(() => {
+    if (isGameOver || gameMode === 'CHALLENGE' || isInputLocked) return; 
+    checkStuckCondition();
+  }, [grid, tray, isGameOver, gameMode, isInputLocked]);
 
-  const canPlaceBlock = (currentGrid: Grid, shape: number[][], x: number, y: number): boolean => {
-    for (let r = 0; r < shape.length; r++) {
-      for (let c = 0; c < shape[0].length; c++) {
-        if (shape[r][c] === 1) {
-          const targetX = x + c;
-          const targetY = y + r;
-          if (
-            targetX < 0 || targetX >= BOARD_SIZE || 
-            targetY < 0 || targetY >= BOARD_SIZE ||
-            currentGrid[targetY][targetX] !== null
-          ) {
-            return false;
-          }
-        }
-      }
+  // Check stuck condition for Challenge Mode
+  useEffect(() => {
+    if (gameMode === 'CHALLENGE' && !isGameOver && challenge.status === 'PLAYING' && !isInputLocked) {
+      checkStuckCondition();
     }
-    return true;
-  };
+  }, [grid, tray, isGameOver, gameMode, challenge.status, isInputLocked]);
+
 
   const addFloatingText = (text: string, color: string) => {
     const id = Math.random().toString(36).substr(2, 9);
@@ -591,7 +684,8 @@ export const useGameEngine = () => {
           const streakBonus = comboStreak > 0 ? (comboStreak * 0.2) : 0;
           const totalMult = lineMult + streakBonus;
 
-          const clearScore = Math.floor((cellsClearedCount * 10) * totalMult);
+          // REDUCED SCORING FACTOR (from 10 to 3) to achieve 25-80 points per line clear base
+          const clearScore = Math.floor((cellsClearedCount * 3) * totalMult);
           const totalScoreGained = clearScore + cellsPlaced; // Add placement points
 
           // C. Visual Feedback
@@ -617,7 +711,10 @@ export const useGameEngine = () => {
           // D. Target Reward
           if (clearedTargets.length > 0) {
               const coinBonus = clearedTargets.length * 1; // 1 coin per target per feedback
-              incrementCoins(coinBonus);
+              
+              // CRITICAL UPDATE: Pass 'CLASSIC' as source so these count for leaderboard
+              incrementCoins(coinBonus, 'CLASSIC');
+              
               addFloatingText(`+${coinBonus} Coins!`, 'text-yellow-400');
               if (settings.soundEnabled) playSound('perfect'); // Nice sound for money
               
@@ -669,33 +766,6 @@ export const useGameEngine = () => {
     return true;
   };
 
-  const updateScore = (points: number) => {
-     setScore(prevScore => {
-        const newScore = prevScore + points;
-        
-        // Handle High Score
-        if (gameMode === 'CLASSIC') {
-            if (newScore > user.highScore) {
-                setUser(prev => ({ 
-                    ...prev, 
-                    highScore: newScore,
-                    stats: { ...prev.stats, classicHighScore: Math.max(prev.stats.classicHighScore, newScore) } 
-                }));
-            } else if (newScore > user.stats.classicHighScore) {
-                trackEvent('classicHighScore', newScore - user.stats.classicHighScore); 
-            }
-        } else if (gameMode === 'OFFLINE') {
-            if (newScore > (user.stats.offlineHighScore || 0)) {
-                setUser(prev => ({
-                    ...prev,
-                    stats: { ...prev.stats, offlineHighScore: newScore }
-                }));
-            }
-        }
-        return newScore;
-     });
-  };
-
   const resetGame = () => {
     setGrid(createEmptyGrid());
     setScore(0);
@@ -707,6 +777,17 @@ export const useGameEngine = () => {
     setIsInputLocked(false);
     setFloatingTexts([]);
     setTargetCells(new Set());
+  };
+
+  // Called when user actively quits a match via the confirmation dialog
+  const quitCurrentMatch = () => {
+      // Logic to "save profile" is handled implicitly by state updates in updateScore
+      // But we ensure strict saving here if needed.
+      // For now, reset game and return to menu state handled by UI
+      // If we wanted to add current score to coins or something:
+      // const coinsEarned = Math.floor(score / 100);
+      // incrementCoins(coinsEarned); 
+      resetGame();
   };
 
   const startChallenge = (stake: number, isRoom: boolean = false, roomCode?: string) => {
@@ -727,6 +808,9 @@ export const useGameEngine = () => {
     const randomName = botNames[Math.floor(Math.random() * botNames.length)];
     const opponentName = isRoom ? 'Friend (P2)' : randomName;
 
+    // Initial status differs for private rooms (Friend is already "there") vs Matchmaking
+    const initialStatus = isRoom ? 'VS_ANIMATION' : 'MATCHMAKING';
+
     setChallenge({
       isActive: true,
       stake: finalStake,
@@ -739,21 +823,28 @@ export const useGameEngine = () => {
       },
       roomCode,
       isHost: !roomCode, 
-      status: 'MATCHMAKING',
+      status: initialStatus,
       result: null
     });
 
     setGameMode('CHALLENGE');
     resetGame();
     
-    const searchTime = Math.random() * 4000 + 6000; 
-    
-    setTimeout(() => {
-      setChallenge(prev => ({ ...prev, status: 'VS_ANIMATION' }));
-      setTimeout(() => {
-        setChallenge(prev => ({ ...prev, status: 'PLAYING' }));
-      }, 3000);
-    }, searchTime);
+    if (isRoom) {
+        // Skip matchmaking delay for private rooms to avoid confusion
+        setTimeout(() => {
+            setChallenge(prev => ({ ...prev, status: 'PLAYING' }));
+        }, 3000); // 3 seconds for VS Animation
+    } else {
+        const searchTime = Math.random() * 4000 + 6000; 
+        
+        setTimeout(() => {
+          setChallenge(prev => ({ ...prev, status: 'VS_ANIMATION' }));
+          setTimeout(() => {
+            setChallenge(prev => ({ ...prev, status: 'PLAYING' }));
+          }, 3000);
+        }, searchTime);
+    }
 
     return true;
   };
@@ -806,7 +897,7 @@ export const useGameEngine = () => {
       reviveGame();
     } else if (rewardType === 'COINS') {
       if (adsWatchedToday < 10) {
-        incrementCoins(20); 
+        incrementCoins(20, 'OTHER'); 
         setAdsWatchedToday(prev => prev + 1);
       }
     }
@@ -844,7 +935,7 @@ export const useGameEngine = () => {
       if (dayIndex === 7) rewardCoins = 200;
       else if (dayIndex >= 4) rewardCoins = 100;
 
-      incrementCoins(rewardCoins);
+      incrementCoins(rewardCoins, 'OTHER');
       
       setUser(prev => ({
         ...prev,
@@ -882,12 +973,18 @@ export const useGameEngine = () => {
     claimMissionReward,
     signInWithGoogle,
     signOutGoogle,
+    playAsGuest,
+    quitCurrentMatch,
     // New exports for UI
     animatingCells, 
     floatingTexts,
     isInputLocked,
     currentLevel,
-    targetCells
+    targetCells,
+    // Avatar/Username Updates
+    updateUsername,
+    updateAvatar,
+    purchaseCustomAvatar
   };
 };
 

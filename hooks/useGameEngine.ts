@@ -1,7 +1,7 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { GameMode, Grid, DraggableBlock, UserProfile, GameSettings, Theme, ThemeId, BlockDefinition, ChallengeState, UserStats, MissionType, DailyMission, FloatingText } from '../types';
-import { BOARD_SIZE, SHAPES, SHAPES_EASY, SHAPES_MEDIUM, SHAPES_HARD, THEMES, ACHIEVEMENTS_DATA, DAILY_MISSION_TEMPLATES } from '../constants';
+import { GameMode, Grid, DraggableBlock, UserProfile, GameSettings, Theme, ThemeId, ChallengeState, UserStats, MissionType, DailyMission, FloatingText } from '../types';
+import { BOARD_SIZE, SHAPES_EASY, SHAPES_MEDIUM, SHAPES_HARD, THEMES, ACHIEVEMENTS_DATA, DAILY_MISSION_TEMPLATES } from '../constants';
+import { supabase } from '../services/supabase';
 import confetti from 'canvas-confetti';
 
 // --- Utils ---
@@ -38,6 +38,7 @@ const DEFAULT_STATS: UserStats = {
   challengeWins: 0,
   adsWatched: 0,
   totalCoinsEarned: 0,
+  classicCoinsEarned: 0, // New Stat
   classicHighScore: 0,
   offlineHighScore: 0,
   totalLinesCleared: 0,
@@ -61,7 +62,7 @@ export const useGameEngine = () => {
   const [user, setUser] = useState<UserProfile>(() => {
     const saved = localStorage.getItem('bbm_user');
     const parsed = saved ? JSON.parse(saved) : {
-      username: generateRandomUsername(), // Use random generator
+      username: generateRandomUsername(), 
       avatarUrl: '',
       coins: 100,
       highScore: 0,
@@ -76,19 +77,19 @@ export const useGameEngine = () => {
       hasCompletedOnboarding: false
     };
     
+    // Schema Migrations / Defaults
     if (!parsed.lastDailyRewardClaim) parsed.lastDailyRewardClaim = '';
     if (typeof parsed.dailyStreak !== 'number') parsed.dailyStreak = 0;
     if (!parsed.stats) parsed.stats = DEFAULT_STATS;
     else {
         if (typeof parsed.stats.offlineHighScore === 'undefined') parsed.stats.offlineHighScore = 0;
+        if (typeof parsed.stats.classicCoinsEarned === 'undefined') parsed.stats.classicCoinsEarned = 0;
     }
     if (!parsed.claimedAchievements) parsed.claimedAchievements = [];
     if (!parsed.dailyMissions) parsed.dailyMissions = [];
     if (typeof parsed.isGoogleLinked === 'undefined') parsed.isGoogleLinked = false;
-    // For legacy users who already played but don't have this flag, assume they finished onboarding
     if (typeof parsed.hasCompletedOnboarding === 'undefined') parsed.hasCompletedOnboarding = true; 
     
-    // Ensure legacy users get a random name if they still have "Player 1"
     if (parsed.username === 'Player 1') {
         parsed.username = generateRandomUsername();
     }
@@ -104,6 +105,134 @@ export const useGameEngine = () => {
   const [activeThemeId, setActiveThemeId] = useState<ThemeId>(() => {
     return (localStorage.getItem('bbm_theme') as ThemeId) || 'default';
   });
+
+  // --- Supabase Integration ---
+  
+  // 1. Check for active session on mount
+  useEffect(() => {
+    const initSession = async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && session.user) {
+            // Fetch profile
+            fetchProfile(session.user);
+        }
+    };
+    initSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session && session.user) {
+            // If we just logged in, fetch profile
+            // We check if we already have this user linked to avoid refetching loop
+            if (!user.isGoogleLinked) {
+                fetchProfile(session.user);
+            }
+        }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // 2. Fetch or Create Profile
+  const fetchProfile = async (supabaseUser: any) => {
+      try {
+          const { data, error } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', supabaseUser.id)
+              .single();
+
+          if (error && error.code === 'PGRST116') {
+              // Profile doesn't exist, create it from local state
+              const newProfile = {
+                  id: supabaseUser.id,
+                  username: user.username, // Use current local name or google name?
+                  avatar_url: supabaseUser.user_metadata.avatar_url || user.avatarUrl,
+                  coins: user.coins,
+                  high_score: user.highScore,
+                  stats: user.stats,
+                  inventory: user.inventory,
+                  daily_missions: user.dailyMissions,
+                  mission_date: user.missionDate,
+                  last_daily_reward_claim: user.lastDailyRewardClaim,
+                  daily_streak: user.dailyStreak,
+                  claimed_achievements: user.claimedAchievements
+              };
+              
+              const { error: insertError } = await supabase.from('profiles').insert([newProfile]);
+              
+              if (!insertError) {
+                  setUser(prev => ({
+                      ...prev,
+                      isGoogleLinked: true,
+                      // If google provided an avatar and we didn't have one, use it
+                      avatarUrl: prev.avatarUrl || supabaseUser.user_metadata.avatar_url,
+                  }));
+              }
+          } else if (data) {
+              // Profile exists, merge/overwrite local state
+              setUser(prev => ({
+                  ...prev,
+                  isGoogleLinked: true,
+                  username: data.username || prev.username,
+                  avatarUrl: data.avatar_url || prev.avatarUrl,
+                  coins: data.coins,
+                  highScore: data.high_score,
+                  stats: data.stats || DEFAULT_STATS,
+                  inventory: data.inventory || { themes: ['default'] },
+                  dailyMissions: data.daily_missions || [],
+                  missionDate: data.mission_date,
+                  lastDailyRewardClaim: data.last_daily_reward_claim,
+                  dailyStreak: data.daily_streak,
+                  claimedAchievements: data.claimed_achievements || []
+              }));
+          }
+      } catch (err) {
+          console.error("Error fetching profile:", err);
+      }
+  };
+
+  // 3. Debounced Save to Supabase
+  // We use a ref to track the latest user state to avoid stale closures in setTimeout
+  const userRef = useRef(user);
+  useEffect(() => { userRef.current = user; }, [user]);
+  
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+      // Always save to LocalStorage
+      localStorage.setItem('bbm_user', JSON.stringify(user));
+      
+      // If linked to Supabase, debounce save to DB
+      if (user.isGoogleLinked) {
+          if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+          
+          saveTimeoutRef.current = setTimeout(async () => {
+              const currentUser = userRef.current;
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session && session.user) {
+                  await supabase.from('profiles').update({
+                      username: currentUser.username,
+                      avatar_url: currentUser.avatarUrl,
+                      coins: currentUser.coins,
+                      high_score: currentUser.highScore,
+                      stats: currentUser.stats,
+                      inventory: currentUser.inventory,
+                      daily_missions: currentUser.dailyMissions,
+                      mission_date: currentUser.missionDate,
+                      last_daily_reward_claim: currentUser.lastDailyRewardClaim,
+                      daily_streak: currentUser.dailyStreak,
+                      claimed_achievements: currentUser.claimedAchievements,
+                      updated_at: new Date().toISOString()
+                  }).eq('id', session.user.id);
+              }
+          }, 5000); // 5 second debounce
+      }
+
+      return () => {
+          if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      };
+  }, [user]); // Runs on every user change
+
 
   // --- Game State ---
   const [grid, setGrid] = useState<Grid>(createEmptyGrid());
@@ -143,18 +272,12 @@ export const useGameEngine = () => {
   const currentTheme: Theme = THEMES[activeThemeId] || THEMES['default'];
   
   // --- Leveling Logic ---
-  // Level 1: 0-1000, Level 2: 1000-2500, Level 3: 2500-5000, Level 4: 5000+
   const currentLevel = Math.max(1, Math.min(10, Math.floor(score / 800) + 1));
 
   // --- Block Generator with Difficulty ---
   const getWeightedBlock = useCallback((level: number): DraggableBlock => {
     const palette = currentTheme.blockPalette;
     const color = palette[Math.floor(Math.random() * palette.length)];
-    
-    // Probabilities based on Level (1 to 10)
-    // Level 1: 80% Easy, 20% Medium, 0% Hard
-    // Level 5: 40% Easy, 40% Medium, 20% Hard
-    // Level 10: 15% Easy, 35% Medium, 50% Hard
     
     let easyWeight = Math.max(15, 85 - (level * 7));
     let hardWeight = Math.min(50, (level - 1) * 6);
@@ -197,7 +320,6 @@ export const useGameEngine = () => {
 
   // --- Effects ---
   
-  useEffect(() => { localStorage.setItem('bbm_user', JSON.stringify(user)); }, [user]);
   useEffect(() => { localStorage.setItem('bbm_settings', JSON.stringify(settings)); }, [settings]);
   useEffect(() => { localStorage.setItem('bbm_theme', activeThemeId); }, [activeThemeId]);
 
@@ -237,11 +359,9 @@ export const useGameEngine = () => {
      setUser(prev => {
         const newMissions = prev.dailyMissions.map(m => {
            if (m.type === type && !m.isClaimed) {
-              // Special logic for Single Score: we replace progress with best score if higher
               if (type === 'SCORE_SINGLE') {
                  return { ...m, progress: Math.max(m.progress, amount) };
               }
-              // Normal cumulative logic
               return { ...m, progress: Math.min(m.target, m.progress + amount) };
            }
            return m;
@@ -269,13 +389,16 @@ export const useGameEngine = () => {
       });
   };
 
-  const incrementCoins = (amount: number) => {
+  const incrementCoins = (amount: number, source: 'CLASSIC' | 'OTHER' = 'OTHER') => {
      setUser(prev => ({
         ...prev,
         coins: prev.coins + amount,
         stats: {
            ...prev.stats,
-           totalCoinsEarned: prev.stats.totalCoinsEarned + amount
+           totalCoinsEarned: prev.stats.totalCoinsEarned + amount,
+           classicCoinsEarned: source === 'CLASSIC' 
+               ? (prev.stats.classicCoinsEarned || 0) + amount 
+               : (prev.stats.classicCoinsEarned || 0)
         }
      }));
   };
@@ -322,20 +445,17 @@ export const useGameEngine = () => {
     return false;
   };
 
-  const signInWithGoogle = () => {
-    return new Promise<void>((resolve) => {
-        setTimeout(() => {
-            setUser(prev => ({
-                ...prev,
-                isGoogleLinked: true,
-                hasCompletedOnboarding: true,
-                username: "Google Player", // Simulate fetch
-                avatarUrl: "https://lh3.googleusercontent.com/a/default-user=s96-c"
-            }));
-            if (settings.soundEnabled) playSound('click');
-            resolve();
-        }, 1500);
-    });
+  const signInWithGoogle = async () => {
+      // Real Supabase Auth
+      const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+      });
+      if (error) {
+          console.error("Supabase Login Error:", error.message);
+          alert("Login failed: " + error.message);
+      }
+      // Note: The app will redirect, so no need to resolve/setState here usually.
+      // Supabase handles the redirect callback.
   };
 
   const playAsGuest = () => {
@@ -343,17 +463,19 @@ export const useGameEngine = () => {
           ...prev,
           isGoogleLinked: false,
           hasCompletedOnboarding: true,
-          username: generateRandomUsername(),
+          username: prev.username || generateRandomUsername(), // Keep existing random name if there
           avatarUrl: undefined
       }));
   };
 
-  const signOutGoogle = () => {
+  const signOutGoogle = async () => {
+      await supabase.auth.signOut();
       setUser(prev => ({
           ...prev,
           isGoogleLinked: false,
-          username: generateRandomUsername(),
-          avatarUrl: undefined
+          username: generateRandomUsername(), // Reset to random guest
+          avatarUrl: undefined,
+          // We could optionally reset stats, but usually games keep local progress
       }));
   };
 
@@ -396,31 +518,21 @@ export const useGameEngine = () => {
   // Realistic AI Scoring Logic
   useEffect(() => {
     if (gameMode !== 'CHALLENGE' || challenge.status !== 'PLAYING' || isGameOver) return;
-    
-    // STRICT CHECK: Double ensure this never runs for a friendly room match
     if (challenge.roomCode || !challenge.opponent.isAi) return; 
 
     let timeoutId: ReturnType<typeof setTimeout>;
 
     const simulateAiTurn = () => {
-      // Thinking time: 2-4 seconds
       const thinkingTime = Math.random() * 2000 + 2000; 
-
       timeoutId = setTimeout(() => {
         setChallenge(prev => {
           if (prev.status !== 'PLAYING' || isGameOver) return prev;
-          
-          // 28% chance for big move
           const isBigMove = Math.random() < 0.28;
-          
           let points = 0;
           if (isBigMove) {
-            // Big move: ~25-85 points
             const lines = Math.floor(Math.random() * 3) + 1; 
-            // 1 line: 25-35, 2 lines: 50-60, 3 lines: 75-85
             points = (lines * 25) + Math.floor(Math.random() * 11);
           } else {
-            // Regular move: 4-20 points
             points = Math.floor(Math.random() * 16) + 4;
           }
           return {
@@ -452,7 +564,7 @@ export const useGameEngine = () => {
       if (result === 'WIN') {
         const winnings = challenge.stake * 2;
         if (challenge.stake > 0) {
-            incrementCoins(winnings); 
+            incrementCoins(winnings, 'OTHER'); 
             trackEvent('rankedWins', 1);
         }
         trackEvent('challengeWins', 1);
@@ -603,13 +715,10 @@ export const useGameEngine = () => {
     setTray(prev => prev.map(b => (b?.instanceId === block.instanceId ? null : b)));
 
     // --- TARGET SYSTEM (Classic Only) ---
-    // Capture current targets locally to ensure we calculate consistently inside this closure
-    // before the async state update has happened for the next render.
     let currentTargets = new Set(targetCells);
     let addedTarget: string | null = null;
     
     if (gameMode === 'CLASSIC' && newlyOccupiedCells.length > 0) {
-        // 30% chance for this block placement to spawn a target
         if (Math.random() < 0.3) {
             const randomCell = newlyOccupiedCells[Math.floor(Math.random() * newlyOccupiedCells.length)];
             if (!currentTargets.has(randomCell)) {
@@ -619,7 +728,6 @@ export const useGameEngine = () => {
         }
     }
 
-    // Update the visual state for targets
     if (addedTarget) {
         setTargetCells(prev => new Set(prev).add(addedTarget!));
     }
@@ -641,8 +749,6 @@ export const useGameEngine = () => {
     // 3. Process Logic
     if (totalLines > 0) {
        // --- ANIMATION PHASE ---
-       
-       // Populate clearing cells set
        rowsToClear.forEach(r => {
          for(let c=0; c<BOARD_SIZE; c++) clearingCells.add(`${r},${c}`);
        });
@@ -650,7 +756,6 @@ export const useGameEngine = () => {
          for(let r=0; r<BOARD_SIZE; r++) clearingCells.add(`${r},${c}`);
        });
 
-       // Lock input and show animation
        setIsInputLocked(true);
        setGrid(newGrid);
        setAnimatingCells(Array.from(clearingCells));
@@ -659,7 +764,6 @@ export const useGameEngine = () => {
 
        // --- DELAYED CLEANUP PHASE (0.35s) ---
        setTimeout(() => {
-          // A. Check Targets Cleared
           const clearedTargets: string[] = [];
           clearingCells.forEach(cell => {
              if (currentTargets.has(cell)) {
@@ -667,10 +771,8 @@ export const useGameEngine = () => {
              }
           });
 
-          // B. Calculate Scores
           const cellsClearedCount = clearingCells.size;
           
-          // Multipliers
           let lineMult = 1;
           if (totalLines === 2) lineMult = 2;
           else if (totalLines >= 3) lineMult = 3;
@@ -678,11 +780,9 @@ export const useGameEngine = () => {
           const streakBonus = comboStreak > 0 ? (comboStreak * 0.2) : 0;
           const totalMult = lineMult + streakBonus;
 
-          // REDUCED SCORING FACTOR (from 10 to 3) to achieve 25-80 points per line clear base
           const clearScore = Math.floor((cellsClearedCount * 3) * totalMult);
-          const totalScoreGained = clearScore + cellsPlaced; // Add placement points
+          const totalScoreGained = clearScore + cellsPlaced; 
 
-          // C. Visual Feedback
           let feedbackText = "";
           let feedbackColor = "text-white";
           
@@ -702,14 +802,13 @@ export const useGameEngine = () => {
 
           if (feedbackText) addFloatingText(feedbackText, feedbackColor);
           
-          // D. Target Reward
           if (clearedTargets.length > 0) {
-              const coinBonus = clearedTargets.length * 1; // 1 coin per target per feedback
-              incrementCoins(coinBonus);
-              addFloatingText(`+${coinBonus} Coins!`, 'text-yellow-400');
-              if (settings.soundEnabled) playSound('perfect'); // Nice sound for money
+              const coinBonus = clearedTargets.length * 1; 
+              incrementCoins(coinBonus, 'CLASSIC');
               
-              // Remove cleared targets from state
+              addFloatingText(`+${coinBonus} Coins!`, 'text-yellow-400');
+              if (settings.soundEnabled) playSound('perfect'); 
+              
               setTargetCells(prev => {
                   const next = new Set(prev);
                   clearedTargets.forEach(t => next.delete(t));
@@ -717,7 +816,6 @@ export const useGameEngine = () => {
               });
           }
 
-          // E. Update Grid & Stats
           const clearedGrid = newGrid.map(row => [...row]);
           rowsToClear.forEach(r => {
              for(let c=0; c<BOARD_SIZE; c++) clearedGrid[r][c] = null;
@@ -731,10 +829,8 @@ export const useGameEngine = () => {
           setComboStreak(prev => prev + 1);
           setIsInputLocked(false);
           
-          // F. Update Score
           updateScore(totalScoreGained);
           
-          // Track
           trackEvent('totalLinesCleared', totalLines);
           trackMissionProgress('CLEAR_LINES', totalLines);
           confetti({
@@ -744,13 +840,12 @@ export const useGameEngine = () => {
              colors: currentTheme.blockPalette
           });
 
-       }, 350); // Matches CSS animation duration
+       }, 350); 
 
     } else {
-       // --- NO LINES CLEARED ---
        setGrid(newGrid);
-       setComboStreak(0); // Reset streak
-       updateScore(cellsPlaced); // Just placement points
+       setComboStreak(0); 
+       updateScore(cellsPlaced); 
        if (settings.soundEnabled) playSound('place');
     }
 
@@ -770,15 +865,19 @@ export const useGameEngine = () => {
     setTargetCells(new Set());
   };
 
-  // Called when user actively quits a match via the confirmation dialog
   const quitCurrentMatch = () => {
-      // Logic to "save profile" is handled implicitly by state updates in updateScore
-      // But we ensure strict saving here if needed.
-      // For now, reset game and return to menu state handled by UI
-      // If we wanted to add current score to coins or something:
-      // const coinsEarned = Math.floor(score / 100);
-      // incrementCoins(coinsEarned); 
       resetGame();
+  };
+
+  // --- New Handlers (Missing in initial code) ---
+  
+  const handleStartGame = (mode: 'CLASSIC' | 'OFFLINE') => {
+    setGameMode(mode);
+    if (mode === 'CLASSIC') {
+        trackEvent('classicMatchesPlayed', 1);
+        trackMissionProgress('PLAY_CLASSIC', 1);
+    }
+    resetGame();
   };
 
   const startChallenge = (stake: number, isRoom: boolean = false, roomCode?: string) => {
@@ -822,10 +921,10 @@ export const useGameEngine = () => {
     resetGame();
     
     if (isRoom) {
-        // Skip matchmaking delay for private rooms to avoid confusion
+        // Skip matchmaking delay for private rooms
         setTimeout(() => {
             setChallenge(prev => ({ ...prev, status: 'PLAYING' }));
-        }, 3000); // 3 seconds for VS Animation
+        }, 3000); 
     } else {
         const searchTime = Math.random() * 4000 + 6000; 
         
@@ -839,15 +938,6 @@ export const useGameEngine = () => {
 
     return true;
   };
-  
-  const handleStartGame = (mode: 'CLASSIC' | 'OFFLINE') => {
-      setGameMode(mode);
-      if (mode === 'CLASSIC') {
-          trackEvent('classicMatchesPlayed', 1);
-          trackMissionProgress('PLAY_CLASSIC', 1);
-      }
-      resetGame();
-  }
 
   const surrenderMatch = () => {
     if (gameMode === 'CHALLENGE' && !isGameOver) {
@@ -888,7 +978,7 @@ export const useGameEngine = () => {
       reviveGame();
     } else if (rewardType === 'COINS') {
       if (adsWatchedToday < 10) {
-        incrementCoins(20); 
+        incrementCoins(20, 'OTHER'); 
         setAdsWatchedToday(prev => prev + 1);
       }
     }
@@ -926,7 +1016,7 @@ export const useGameEngine = () => {
       if (dayIndex === 7) rewardCoins = 200;
       else if (dayIndex >= 4) rewardCoins = 100;
 
-      incrementCoins(rewardCoins);
+      incrementCoins(rewardCoins, 'OTHER');
       
       setUser(prev => ({
         ...prev,
@@ -966,21 +1056,17 @@ export const useGameEngine = () => {
     signOutGoogle,
     playAsGuest,
     quitCurrentMatch,
-    // New exports for UI
     animatingCells, 
     floatingTexts,
     isInputLocked,
     currentLevel,
     targetCells,
-    // Avatar/Username Updates
     updateUsername,
     updateAvatar,
     purchaseCustomAvatar
   };
 };
 
-// Simple Sound Mock
-// In a real app, these would play actual Audio objects
 const playSound = (type: 'place' | 'clear' | 'gameover' | 'click' | 'blast' | 'combo' | 'perfect') => {
-    // console.log(`Playing sound: ${type}`);
+    // Placeholder
 };

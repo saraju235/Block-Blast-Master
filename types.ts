@@ -1,4 +1,5 @@
 
+
 export type Cell = string | null; // Color hex or null
 export type Grid = Cell[][];
 export type BlockShape = number[][]; // 0/1 matrix
@@ -55,7 +56,8 @@ export interface UserStats {
   challengeMatchesPlayed: number; // Total VS matches
   challengeWins: number; 
   adsWatched: number;
-  totalCoinsEarned: number;
+  totalCoinsEarned: number; // Total lifetime coins (all sources)
+  classicCoinsEarned: number; // Coins earned ONLY in classic mode
   classicHighScore: number;
   offlineHighScore: number; // New stat
   totalLinesCleared: number;
