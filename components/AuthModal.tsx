@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { X, Mail, Lock, Loader2, ArrowRight } from 'lucide-react';
+import { X, Mail, Lock, Loader2, ArrowRight, Check } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -13,6 +13,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSignIn,
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,35 +62,57 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSignIn,
           <form onSubmit={handleSubmit} className="space-y-4">
             
             <div>
-              <label className="block text-xs font-bold text-white/50 uppercase mb-1">Email Address</label>
+              <label className="block text-xs font-bold text-white/50 uppercase mb-1" htmlFor="email-input">Email Address</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" size={16} />
                 <input 
+                  id="email-input"
+                  name="email"
                   type="email" 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full bg-black/30 border border-white/10 rounded-lg pl-10 pr-4 py-3 text-white focus:outline-none focus:border-indigo-500 transition-colors"
                   placeholder="name@example.com"
+                  autoComplete="username"
                   required
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-white/50 uppercase mb-1">Password</label>
+              <label className="block text-xs font-bold text-white/50 uppercase mb-1" htmlFor="password-input">Password</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" size={16} />
                 <input 
+                  id="password-input"
+                  name="password"
                   type="password" 
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full bg-black/30 border border-white/10 rounded-lg pl-10 pr-4 py-3 text-white focus:outline-none focus:border-indigo-500 transition-colors"
                   placeholder="••••••••"
+                  autoComplete={isSignUp ? "new-password" : "current-password"}
                   required
                   minLength={6}
                 />
               </div>
             </div>
+
+            {/* Remember Me Checkbox */}
+            {!isSignUp && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRememberMe(!rememberMe)}
+                  className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${rememberMe ? 'bg-indigo-500 border-indigo-500' : 'bg-black/30 border-white/20'}`}
+                >
+                  {rememberMe && <Check size={14} className="text-white" />}
+                </button>
+                <label onClick={() => setRememberMe(!rememberMe)} className="text-sm text-white/70 cursor-pointer select-none">
+                  Remember me
+                </label>
+              </div>
+            )}
 
             {error && (
               <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-3 rounded-lg">

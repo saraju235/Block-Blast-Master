@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Settings, Play, Trophy, RotateCcw, Coins, Video, User, WifiOff, Plus, Wifi, Gift, Swords, Clock, Flag, AlertTriangle, Target, Crown, BarChart2, ArrowLeft, LogOut, CheckCircle, Mail } from 'lucide-react';
+import { Settings, Trophy, RotateCcw, Coins, Video, User, WifiOff, Plus, Wifi, Gift, Swords, Clock, Flag, AlertTriangle, Target, Crown, BarChart2, ArrowLeft, LogOut, Mail } from 'lucide-react';
 import { useGameEngine } from './hooks/useGameEngine';
 import { BlockPiece } from './components/BlockPiece';
 import { SettingsModal } from './components/SettingsModal';
@@ -39,8 +39,9 @@ export default function App() {
     signInWithGoogle,
     signInWithEmail,
     signUpWithEmail,
-    signOutGoogle,
+    logout,
     playAsGuest,
+    returnToOnboarding,
     quitCurrentMatch,
     animatingCells,
     floatingTexts,
@@ -333,7 +334,7 @@ export default function App() {
   // --- ONBOARDING VIEW ---
   if (!user.hasCompletedOnboarding) {
       return (
-          <div className="min-h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white p-6 animate-fade-in">
+          <div className="min-h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white p-6 animate-fade-in overflow-y-auto">
               <AuthModal 
                   isOpen={showAuthModal} 
                   onClose={() => setShowAuthModal(false)}
@@ -407,8 +408,8 @@ export default function App() {
         watchAd={watchAd}
         adsWatchedToday={adsWatchedToday}
         claimAchievement={claimAchievement}
-        signInWithGoogle={signInWithGoogle}
-        signOutGoogle={signOutGoogle}
+        logout={logout}
+        openAuth={returnToOnboarding}
         updateUsername={updateUsername}
         updateAvatar={updateAvatar}
         purchaseCustomAvatar={purchaseCustomAvatar}
@@ -538,7 +539,7 @@ export default function App() {
 
       {/* --- MENU SCREEN --- */}
       {screen === 'MENU' && (
-        <div className="flex-1 flex flex-col items-center justify-center p-4 relative pt-16">
+        <div className="flex-1 flex flex-col items-center justify-center p-4 relative pt-16 overflow-y-auto">
           
           {/* Top Banner Ad - Fixed Position */}
           <div className="absolute top-0 left-0 w-full z-0">
@@ -546,10 +547,10 @@ export default function App() {
           </div>
 
           {/* SINGLE LINE HEADER (Fixed Layout) */}
-          <div className="absolute top-14 left-0 w-full px-4 flex items-center justify-between z-10">
+          <div className="absolute top-14 left-0 w-full px-4 flex items-center justify-between z-10 pointer-events-none">
               
               {/* Left Group: Profile + Status */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 pointer-events-auto">
                   {/* Profile Pill */}
                   <div className="flex items-center gap-2 px-3 py-1.5 bg-black/40 backdrop-blur-md rounded-full border border-white/10 shadow-lg cursor-pointer hover:bg-white/5 transition-colors" onClick={() => setShowSettings(true)}>
                     <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center border border-white/20 overflow-hidden">
@@ -568,7 +569,7 @@ export default function App() {
               </div>
 
               {/* Right Side: Coins, Settings */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 pointer-events-auto">
                  
                  {/* Coins Pill */}
                  <div className="flex items-center gap-2 px-3 py-1.5 bg-black/40 backdrop-blur-md rounded-full border border-white/10 shadow-lg">
@@ -693,7 +694,7 @@ export default function App() {
 
       {/* --- GAME SCREEN --- */}
       {screen === 'GAME' && (
-        <div className="flex-1 flex flex-col items-center relative min-h-0">
+        <div className="flex-1 flex flex-col items-center relative min-h-0 touch-none">
           
            {/* Top Banner Ad - Flex Item */}
            <div className="w-full flex-shrink-0 z-10">

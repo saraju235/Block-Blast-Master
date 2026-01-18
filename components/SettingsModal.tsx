@@ -1,9 +1,8 @@
 
 import React, { useState, useRef } from 'react';
-import { X, Volume2, VolumeX, Smartphone, Monitor, User, Info, Palette, Lock, CheckCircle, Video, Coins, Star, Trophy, Medal, LogOut, Edit2, Camera, Upload, Mail } from 'lucide-react';
+import { X, Volume2, Smartphone, Monitor, User, CheckCircle, Video, Coins, Star, Trophy, LogOut, Edit2, Camera, Mail, UserPlus } from 'lucide-react';
 import { GameSettings, UserProfile, ThemeId, Theme } from '../types';
 import { THEMES, ACHIEVEMENTS_DATA } from '../constants';
-import { GoogleSignInBtn } from './GoogleSignInBtn';
 import confetti from 'canvas-confetti';
 
 interface SettingsModalProps {
@@ -19,9 +18,8 @@ interface SettingsModalProps {
   watchAd: (type: 'COINS') => void;
   adsWatchedToday: number;
   claimAchievement: (id: string, tier: 0 | 1 | 2) => boolean;
-  signInWithGoogle?: () => Promise<void>;
-  signOutGoogle?: () => void;
-  // New Handlers
+  logout?: () => void;
+  openAuth?: () => void;
   updateUsername?: (name: string) => void;
   updateAvatar?: (url: string) => void;
   purchaseCustomAvatar?: (data: string) => boolean;
@@ -32,16 +30,13 @@ const FREE_AVATARS = [
 ];
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
-  isOpen, onClose, settings, setSettings, user, setUser, activeThemeId, setActiveThemeId, buyTheme, watchAd, adsWatchedToday, claimAchievement, signInWithGoogle, signOutGoogle, updateUsername, updateAvatar, purchaseCustomAvatar
+  isOpen, onClose, settings, setSettings, user, setUser, activeThemeId, setActiveThemeId, buyTheme, watchAd, adsWatchedToday, claimAchievement, logout, openAuth, updateUsername, updateAvatar, purchaseCustomAvatar
 }) => {
   const [tab, setTab] = useState<'GENERAL' | 'THEMES' | 'ACHIEVEMENTS' | 'DEV'>('GENERAL');
   
-  // Modal Overlay States
   const [overlayState, setOverlayState] = useState<'NONE' | 'SUCCESS' | 'NO_FUNDS'>('NONE');
-  // Replaced simple selectedTheme with a generic purchase item state
   const [purchaseItem, setPurchaseItem] = useState<{ id: string, name: string, price: number, type: 'THEME' | 'AVATAR' } | null>(null);
 
-  const [isSigningIn, setIsSigningIn] = useState(false);
   const [isEditingAvatar, setIsEditingAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -79,7 +74,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
              particleCount: 100,
              spread: 60,
              origin: { y: 0.6 },
-             zIndex: 2000 // Higher than modal
+             zIndex: 2000 
           });
       }
   };
@@ -92,14 +87,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleWatchAd = () => {
      watchAd('COINS');
      closeOverlay(); 
-  };
-
-  const handleGoogleSignIn = async () => {
-      if (signInWithGoogle) {
-          setIsSigningIn(true);
-          await signInWithGoogle();
-          setIsSigningIn(false);
-      }
   };
 
   const formatValue = (val: number, id: string) => {
@@ -126,7 +113,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                      origin: { y: 0.5 }
                   });
               } else {
-                  // Show the No Funds Overlay
                   setPurchaseItem({ id: 'custom_avatar', name: 'Custom Photo', price: 1000, type: 'AVATAR' });
                   setOverlayState('NO_FUNDS');
               }
@@ -143,7 +129,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
       <div className="relative w-full max-w-md bg-slate-900 border border-white/10 rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
         
-        {/* Header - Fixed */}
+        {/* Header */}
         <div className="flex-shrink-0 flex items-center justify-between p-4 border-b border-white/10 bg-slate-900 z-10">
           <h2 className="text-xl font-bold text-white">Settings</h2>
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full">
@@ -151,7 +137,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        {/* Tabs - Fixed */}
+        {/* Tabs */}
         <div className="flex-shrink-0 flex p-2 gap-2 bg-black/20 overflow-x-auto no-scrollbar border-b border-white/5">
           <button onClick={() => setTab('GENERAL')} className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg whitespace-nowrap transition-colors ${tab === 'GENERAL' ? 'bg-indigo-600 text-white' : 'text-white/50 hover:bg-white/5'}`}>General</button>
           <button onClick={() => setTab('THEMES')} className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg whitespace-nowrap transition-colors ${tab === 'THEMES' ? 'bg-pink-600 text-white' : 'text-white/50 hover:bg-white/5'}`}>Themes</button>
@@ -159,7 +145,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button onClick={() => setTab('DEV')} className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg whitespace-nowrap transition-colors ${tab === 'DEV' ? 'bg-sky-600 text-white' : 'text-white/50 hover:bg-white/5'}`}>Info</button>
         </div>
 
-        {/* Content - Scrollable */}
+        {/* Content */}
         <div className="p-6 overflow-y-auto flex-1 min-h-0 relative custom-scrollbar touch-pan-y">
           
           {tab === 'GENERAL' && (
@@ -183,16 +169,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 <span className="text-[10px] text-white/50">{user.username}</span>
                             </div>
                         </div>
-                        {signOutGoogle && (
-                            <button onClick={signOutGoogle} className="p-2 hover:bg-white/10 rounded-full text-white/50 hover:text-white" title="Disconnect">
+                        {logout && (
+                            <button onClick={logout} className="p-2 hover:bg-white/10 rounded-full text-white/50 hover:text-white" title="Disconnect">
                                 <LogOut size={16} />
                             </button>
                         )}
                     </div>
                 ) : (
-                    <div className="mb-4 text-center">
-                        <p className="text-xs text-white/50 mb-2">Sign in to save progress and access leaderboards.</p>
-                        <GoogleSignInBtn onClick={handleGoogleSignIn} isLoading={isSigningIn} />
+                    <div className="mb-4 text-center p-4 bg-white/5 rounded-xl border border-white/10">
+                        <p className="text-xs text-white/50 mb-3">Playing as Guest. Create an account to save progress!</p>
+                        {openAuth && (
+                            <button 
+                                onClick={openAuth}
+                                className="w-full py-2 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg text-white font-bold text-sm shadow-lg flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] transition-transform"
+                            >
+                                <UserPlus size={16} /> Create Account / Login
+                            </button>
+                        )}
                     </div>
                 )}
 
@@ -348,7 +341,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                          onClick={() => attemptUnlockTheme(theme)} 
                          className="w-full py-1 bg-yellow-500 hover:bg-yellow-600 text-black rounded text-xs font-bold mt-2 flex items-center justify-center gap-1 shadow-md hover:scale-105 transition-transform"
                        >
-                         <Lock size={10} /> Unlock {theme.price}
+                         {/* Replaced Lock with basic text if icon not wanted, but here keeping clean */}
+                         Unlock {theme.price}
                        </button>
                      )}
                    </div>
@@ -376,7 +370,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                    const remaining = Math.max(0, nextTier.target - currentValue);
                    const isCompletedAll = currentValue >= ach.tiers[2].target;
 
-                   // Calculate simplified progress for bar (0-100% of max tier)
                    const progressPercent = Math.min((currentValue / maxTarget) * 100, 100);
                    
                    return (
@@ -417,7 +410,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                return (
                                   <button
                                      key={index}
-                                     disabled={!isNext && !isClaimed} // Disable if locked or already claimed
+                                     disabled={!isNext && !isClaimed} 
                                      onClick={() => handleClaimAchievement(ach.id, index as 0|1|2)}
                                      className={`
                                         flex flex-col items-center justify-center p-2 rounded-lg border relative transition-all min-h-[70px]
