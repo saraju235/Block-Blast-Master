@@ -16,6 +16,17 @@ const getDaysDifference = (date1: string, date2: string) => {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
 };
 
+// --- Random Name Generator ---
+const ADJECTIVES = ['Swift', 'Brave', 'Cosmic', 'Neon', 'Epic', 'Lucky', 'Hyper', 'Shadow', 'Pixel', 'Turbo', 'Mighty', 'Frozen'];
+const NOUNS = ['Panda', 'Tiger', 'Ninja', 'Falcon', 'Ghost', 'Wizard', 'Knight', 'Rocket', 'Dragon', 'Eagle', 'Wolf', 'Star'];
+
+const generateRandomUsername = () => {
+  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+  const num = Math.floor(Math.random() * 999);
+  return `${adj}${noun}${num}`;
+};
+
 // Default Stats for new users
 const DEFAULT_STATS: UserStats = {
   totalPlayTimeSeconds: 0,
@@ -50,7 +61,7 @@ export const useGameEngine = () => {
   const [user, setUser] = useState<UserProfile>(() => {
     const saved = localStorage.getItem('bbm_user');
     const parsed = saved ? JSON.parse(saved) : {
-      username: 'Player 1',
+      username: generateRandomUsername(), // Use random generator
       avatarUrl: '',
       coins: 100,
       highScore: 0,
@@ -76,6 +87,11 @@ export const useGameEngine = () => {
     if (typeof parsed.isGoogleLinked === 'undefined') parsed.isGoogleLinked = false;
     // For legacy users who already played but don't have this flag, assume they finished onboarding
     if (typeof parsed.hasCompletedOnboarding === 'undefined') parsed.hasCompletedOnboarding = true; 
+    
+    // Ensure legacy users get a random name if they still have "Player 1"
+    if (parsed.username === 'Player 1') {
+        parsed.username = generateRandomUsername();
+    }
 
     return parsed;
   });
@@ -285,6 +301,27 @@ export const useGameEngine = () => {
       return false;
   };
 
+  const updateUsername = (name: string) => {
+    setUser(prev => ({ ...prev, username: name }));
+  };
+
+  const updateAvatar = (url: string) => {
+    setUser(prev => ({ ...prev, avatarUrl: url }));
+  };
+
+  const purchaseCustomAvatar = (imageBase64: string): boolean => {
+    if (user.coins >= 1000) {
+       setUser(prev => ({
+          ...prev,
+          coins: prev.coins - 1000,
+          avatarUrl: imageBase64
+       }));
+       if (settings.soundEnabled) playSound('perfect');
+       return true;
+    }
+    return false;
+  };
+
   const signInWithGoogle = () => {
     return new Promise<void>((resolve) => {
         setTimeout(() => {
@@ -306,7 +343,7 @@ export const useGameEngine = () => {
           ...prev,
           isGoogleLinked: false,
           hasCompletedOnboarding: true,
-          username: "Guest Player",
+          username: generateRandomUsername(),
           avatarUrl: undefined
       }));
   };
@@ -315,7 +352,7 @@ export const useGameEngine = () => {
       setUser(prev => ({
           ...prev,
           isGoogleLinked: false,
-          username: "Player 1",
+          username: generateRandomUsername(),
           avatarUrl: undefined
       }));
   };
@@ -934,7 +971,11 @@ export const useGameEngine = () => {
     floatingTexts,
     isInputLocked,
     currentLevel,
-    targetCells
+    targetCells,
+    // Avatar/Username Updates
+    updateUsername,
+    updateAvatar,
+    purchaseCustomAvatar
   };
 };
 

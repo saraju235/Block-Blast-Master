@@ -43,7 +43,11 @@ export default function App() {
     floatingTexts,
     isInputLocked,
     currentLevel,
-    targetCells
+    targetCells,
+    // Profile Updates
+    updateUsername,
+    updateAvatar,
+    purchaseCustomAvatar
   } = useGameEngine();
 
   const [screen, setScreen] = useState<'MENU' | 'GAME'>('MENU');
@@ -385,6 +389,9 @@ export default function App() {
         claimAchievement={claimAchievement}
         signInWithGoogle={signInWithGoogle}
         signOutGoogle={signOutGoogle}
+        updateUsername={updateUsername}
+        updateAvatar={updateAvatar}
+        purchaseCustomAvatar={purchaseCustomAvatar}
       />
 
       {showDailyReward && (

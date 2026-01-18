@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { X, Volume2, VolumeX, Smartphone, Monitor, User, Info, Palette, Lock, CheckCircle, Video, Coins, Star, Trophy, Medal, LogOut } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { X, Volume2, VolumeX, Smartphone, Monitor, User, Info, Palette, Lock, CheckCircle, Video, Coins, Star, Trophy, Medal, LogOut, Edit2, Camera, Upload } from 'lucide-react';
 import { GameSettings, UserProfile, ThemeId, Theme } from '../types';
 import { THEMES, ACHIEVEMENTS_DATA } from '../constants';
 import { GoogleSignInBtn } from './GoogleSignInBtn';
@@ -21,17 +21,29 @@ interface SettingsModalProps {
   claimAchievement: (id: string, tier: 0 | 1 | 2) => boolean;
   signInWithGoogle?: () => Promise<void>;
   signOutGoogle?: () => void;
+  // New Handlers
+  updateUsername?: (name: string) => void;
+  updateAvatar?: (url: string) => void;
+  purchaseCustomAvatar?: (data: string) => boolean;
 }
 
+const FREE_AVATARS = [
+   "Felix", "Aneka", "Jack", "Milo", "Sora", "Luna", "Oliver", "Leo"
+];
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({
-  isOpen, onClose, settings, setSettings, user, setUser, activeThemeId, setActiveThemeId, buyTheme, watchAd, adsWatchedToday, claimAchievement, signInWithGoogle, signOutGoogle
+  isOpen, onClose, settings, setSettings, user, setUser, activeThemeId, setActiveThemeId, buyTheme, watchAd, adsWatchedToday, claimAchievement, signInWithGoogle, signOutGoogle, updateUsername, updateAvatar, purchaseCustomAvatar
 }) => {
   const [tab, setTab] = useState<'GENERAL' | 'THEMES' | 'ACHIEVEMENTS' | 'DEV'>('GENERAL');
   
   // Modal Overlay States
   const [overlayState, setOverlayState] = useState<'NONE' | 'SUCCESS' | 'NO_FUNDS'>('NONE');
-  const [selectedTheme, setSelectedTheme] = useState<Theme | null>(null);
+  // Replaced simple selectedTheme with a generic purchase item state
+  const [purchaseItem, setPurchaseItem] = useState<{ id: string, name: string, price: number, type: 'THEME' | 'AVATAR' } | null>(null);
+
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [isEditingAvatar, setIsEditingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
@@ -40,13 +52,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setUser({ ...user, username: e.target.value });
+    if (updateUsername) updateUsername(e.target.value);
   };
 
-  const attemptUnlock = (theme: Theme) => {
-    setSelectedTheme(theme);
+  const attemptUnlockTheme = (theme: Theme) => {
     const success = buyTheme(theme.id);
     if (success) {
+      setPurchaseItem({ id: theme.id, name: theme.name, price: theme.price, type: 'THEME' });
       setOverlayState('SUCCESS');
       confetti({
         particleCount: 150,
@@ -55,6 +67,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         zIndex: 1000
       });
     } else {
+      setPurchaseItem({ id: theme.id, name: theme.name, price: theme.price, type: 'THEME' });
       setOverlayState('NO_FUNDS');
     }
   };
@@ -73,7 +86,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const closeOverlay = () => {
     setOverlayState('NONE');
-    setSelectedTheme(null);
+    setPurchaseItem(null);
   };
 
   const handleWatchAd = () => {
@@ -94,6 +107,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       return `${Math.floor(val / 60)}m`;
     }
     return val.toLocaleString();
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+          const base64String = reader.result as string;
+          if (purchaseCustomAvatar) {
+              const success = purchaseCustomAvatar(base64String);
+              if (success) {
+                  setIsEditingAvatar(false);
+                  confetti({
+                     particleCount: 50,
+                     spread: 50,
+                     origin: { y: 0.5 }
+                  });
+              } else {
+                  // Show the No Funds Overlay
+                  setPurchaseItem({ id: 'custom_avatar', name: 'Custom Photo', price: 1000, type: 'AVATAR' });
+                  setOverlayState('NO_FUNDS');
+              }
+          }
+      };
+      reader.readAsDataURL(file);
+  };
+
+  const triggerFileUpload = () => {
+      fileInputRef.current?.click();
   };
 
   return (
@@ -146,18 +189,87 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                 )}
 
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center overflow-hidden">
-                    {user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <User size={24} />}
-                  </div>
-                  <input 
-                    type="text" 
-                    value={user.username} 
-                    onChange={handleNameChange}
-                    disabled={!!user.isGoogleLinked}
-                    className={`flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 ${user.isGoogleLinked ? 'opacity-50' : ''}`}
-                    placeholder="Enter Username"
-                  />
+                {/* Avatar & Username Edit Section */}
+                <div className="flex flex-col gap-3 mb-4">
+                    <div className="flex items-center gap-3">
+                        <button 
+                            onClick={() => setIsEditingAvatar(!isEditingAvatar)}
+                            className="relative group w-16 h-16 rounded-full flex-shrink-0"
+                        >
+                            <div className="w-full h-full rounded-full overflow-hidden border-2 border-white/20">
+                                {user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <User size={32} className="text-white m-auto mt-4" />}
+                            </div>
+                            <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Edit2 size={16} className="text-white" />
+                            </div>
+                             <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center border-2 border-slate-900">
+                                <Edit2 size={10} className="text-white" />
+                             </div>
+                        </button>
+                        
+                        <div className="flex-1">
+                            <label className="text-[10px] text-white/40 uppercase font-bold mb-1 block">Username</label>
+                            <div className="relative">
+                                <input 
+                                    type="text" 
+                                    value={user.username} 
+                                    onChange={handleNameChange}
+                                    className="w-full bg-black/20 border border-white/10 rounded-lg pl-3 pr-8 py-2 text-white font-bold focus:outline-none focus:border-indigo-500 transition-colors"
+                                    placeholder="Enter Username"
+                                />
+                                <Edit2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/20 pointer-events-none" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Avatar Selection Area */}
+                    {isEditingAvatar && (
+                        <div className="bg-black/30 rounded-xl p-3 border border-white/5 animate-fade-in mt-2">
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="text-xs font-bold text-white/60">Choose Avatar (Free)</span>
+                                <button onClick={() => setIsEditingAvatar(false)}><X size={14} className="text-white/40" /></button>
+                            </div>
+                            
+                            <div className="grid grid-cols-4 gap-2 mb-4">
+                                {FREE_AVATARS.map((seed) => {
+                                    const url = `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`;
+                                    const isSelected = user.avatarUrl === url;
+                                    return (
+                                        <button 
+                                            key={seed}
+                                            onClick={() => updateAvatar && updateAvatar(url)}
+                                            className={`aspect-square rounded-full border-2 overflow-hidden bg-slate-700 transition-all ${isSelected ? 'border-green-500 scale-105 shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'border-transparent hover:border-white/30'}`}
+                                        >
+                                            <img src={url} alt={seed} className="w-full h-full object-cover" />
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="h-px bg-white/10 w-full mb-3"></div>
+                            
+                            <div className="flex flex-col gap-2">
+                                <span className="text-xs font-bold text-white/60">Custom Photo</span>
+                                <input 
+                                    type="file" 
+                                    accept="image/*" 
+                                    ref={fileInputRef} 
+                                    className="hidden" 
+                                    onChange={handleFileUpload}
+                                />
+                                <button 
+                                    onClick={triggerFileUpload}
+                                    className="w-full py-2 bg-gradient-to-r from-yellow-600 to-orange-600 rounded-lg flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] transition-transform"
+                                >
+                                    <Camera size={16} className="text-white" />
+                                    <span className="text-xs font-bold text-white">Upload / Camera</span>
+                                    <div className="flex items-center gap-1 bg-black/20 px-2 py-0.5 rounded text-[10px] text-yellow-300">
+                                        <Coins size={10} /> 1000
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Stats Display */}
@@ -226,7 +338,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                        </button>
                      ) : (
                        <button 
-                         onClick={() => attemptUnlock(theme)} 
+                         onClick={() => attemptUnlockTheme(theme)} 
                          className="w-full py-1 bg-yellow-500 hover:bg-yellow-600 text-black rounded text-xs font-bold mt-2 flex items-center justify-center gap-1 shadow-md hover:scale-105 transition-transform"
                        >
                          <Lock size={10} /> Unlock {theme.price}
@@ -373,25 +485,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* --- OVERLAYS --- */}
         
         {/* Success Overlay */}
-        {overlayState === 'SUCCESS' && selectedTheme && (
+        {overlayState === 'SUCCESS' && purchaseItem && (
            <div className="absolute inset-0 z-50 bg-slate-900/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-fade-in">
               <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(34,197,94,0.4)] animate-bounce">
                  <CheckCircle size={40} className="text-white" />
               </div>
               <h3 className="text-3xl font-black text-white mb-2 leading-none">CONGRATULATIONS!</h3>
-              <p className="text-white/70 mb-6">Theme Unlocked</p>
+              <p className="text-white/70 mb-6">{purchaseItem.type === 'THEME' ? 'Theme Unlocked' : 'Purchase Successful'}</p>
               
               <div className="p-4 bg-white/5 rounded-xl border border-white/10 mb-8 w-full max-w-[200px]">
-                 <span className="text-lg font-bold text-pink-400">{selectedTheme.name}</span>
+                 <span className="text-lg font-bold text-pink-400">{purchaseItem.name}</span>
               </div>
 
               <div className="w-full space-y-3">
-                <button 
-                  onClick={() => { setActiveThemeId(selectedTheme.id); closeOverlay(); }}
-                  className="w-full py-3 bg-gradient-to-r from-pink-500 to-rose-500 rounded-xl font-bold text-white shadow-lg hover:scale-105 transition-transform"
-                >
-                  Equip Now
-                </button>
+                {purchaseItem.type === 'THEME' && (
+                    <button 
+                      onClick={() => { setActiveThemeId(purchaseItem.id as ThemeId); closeOverlay(); }}
+                      className="w-full py-3 bg-gradient-to-r from-pink-500 to-rose-500 rounded-xl font-bold text-white shadow-lg hover:scale-105 transition-transform"
+                    >
+                      Equip Now
+                    </button>
+                )}
                 <button 
                   onClick={closeOverlay}
                   className="w-full py-3 bg-white/10 rounded-xl font-bold text-white/60 hover:text-white transition-colors"
@@ -403,7 +517,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         )}
 
         {/* Insufficient Funds Overlay */}
-        {overlayState === 'NO_FUNDS' && selectedTheme && (
+        {overlayState === 'NO_FUNDS' && purchaseItem && (
            <div className="absolute inset-0 z-50 bg-slate-900/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-fade-in">
                <div className="w-20 h-20 bg-red-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(239,68,68,0.4)]">
                  <Coins size={40} className="text-white" />
@@ -411,7 +525,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                
                <h3 className="text-2xl font-black text-white mb-2">NOT ENOUGH COINS!</h3>
                <p className="text-white/60 text-sm mb-6 max-w-[260px] mx-auto">
-                 You need <span className="text-yellow-400 font-bold">{selectedTheme.price - user.coins}</span> more coins to unlock {selectedTheme.name}.
+                 You need <span className="text-yellow-400 font-bold">{Math.max(0, purchaseItem.price - user.coins)}</span> more coins to unlock {purchaseItem.name}.
                </p>
 
                <div className="w-full space-y-3">
