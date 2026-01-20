@@ -50,6 +50,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (updateUsername) updateUsername(e.target.value);
   };
 
+  const handleLoginClick = () => {
+      onClose(); // Close settings so when they return from onboarding, they are at the menu
+      if (openAuth) openAuth();
+  };
+
   const attemptUnlockTheme = (theme: Theme) => {
     const success = buyTheme(theme.id);
     if (success) {
@@ -125,6 +130,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       fileInputRef.current?.click();
   };
 
+  const isGuest = !user.isGoogleLinked && !user.email;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
       <div className="relative w-full max-w-md bg-slate-900 border border-white/10 rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
@@ -145,8 +152,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button onClick={() => setTab('DEV')} className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg whitespace-nowrap transition-colors ${tab === 'DEV' ? 'bg-sky-600 text-white' : 'text-white/50 hover:bg-white/5'}`}>Info</button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 overflow-y-auto flex-1 min-h-0 relative custom-scrollbar touch-pan-y">
+        {/* Content - Fix scrolling */}
+        <div className="p-6 overflow-y-auto flex-1 min-h-0 relative custom-scrollbar touch-pan-y overscroll-contain">
           
           {tab === 'GENERAL' && (
             <div className="space-y-6">
@@ -154,7 +161,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div>
                 <label className="text-xs text-white/50 uppercase tracking-wider font-bold mb-2 block">Player Profile</label>
                 
-                {user.isGoogleLinked ? (
+                {!isGuest ? (
                     <div className="bg-green-500/10 border border-green-500/30 p-3 rounded-lg mb-4 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <img src={user.avatarUrl} className="w-8 h-8 rounded-full" alt="Profile" />
@@ -180,7 +187,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <p className="text-xs text-white/50 mb-3">Playing as Guest. Create an account to save progress!</p>
                         {openAuth && (
                             <button 
-                                onClick={openAuth}
+                                onClick={handleLoginClick}
                                 className="w-full py-2 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg text-white font-bold text-sm shadow-lg flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] transition-transform"
                             >
                                 <UserPlus size={16} /> Create Account / Login

@@ -27,7 +27,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onCl
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(false);
   
-  const isGuest = !user.isGoogleLinked;
+  const isGuest = !user.isGoogleLinked && !user.email;
 
   // Fetch real data when open/tab changes
   useEffect(() => {
@@ -42,21 +42,8 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onCl
           let query = supabase.from('profiles').select('username, avatar_url, high_score, coins, stats, id');
 
           if (tab === 'GLOBAL' || tab === 'MONTHLY') {
-              // Note: Monthly would normally filter by updated_at or separate table
-              // For now, mapping both to High Score for simplicity as requested
               query = query.order('high_score', { ascending: false });
           } else {
-              // Coin Rank -> sort by stats->classicCoinsEarned or just coins?
-              // The request was "Top coin rank... only coins earned in classic matches"
-              // JSONB sorting is tricky without an index or generated column.
-              // We will fetch top 100 and sort client side if needed, or rely on a DB view (better)
-              // For this implementation, we will fetch top 100 profiles based on total coins and filter/sort client side
-              // OR better: we assume user syncs stats correctly. 
-              // Supabase doesn't easily support ordering by JSONB key directly in JS client without casting.
-              // Workaround: We will just order by 'coins' for now as a proxy, 
-              // or assuming 'classicCoinsEarned' is important enough, the user should make it a real column.
-              // To respect the prompt "stats" jsonb approach:
-              // We'll fetch top 50, then sort by `stats->classicCoinsEarned`.
               query = query.limit(100); 
           }
 
@@ -78,19 +65,16 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onCl
                       name: p.username || 'Unknown',
                       score: score,
                       avatarUrl: p.avatar_url,
-                      isUser: false // We will set this later
+                      isUser: false 
                   };
               });
 
-              // Re-sort if we did client-side extraction (COINS)
               if (tab === 'COINS') {
                   processed.sort((a, b) => b.score - a.score);
               }
               
-              // Assign ranks
               processed = processed.map((p, i) => ({ ...p, rank: i + 1 }));
               
-              // Mark current user
               const { data: { session } } = await supabase.auth.getSession();
               if (session) {
                   processed = processed.map(p => ({
@@ -112,7 +96,6 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onCl
   const restList = entries.slice(3);
   const userRankEntry = entries.find(e => e.isUser);
 
-  // Helper for time remaining
   const getDaysLeft = () => {
     const date = new Date();
     const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
@@ -142,7 +125,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onCl
         </div>
 
         {/* Tabs */}
-        <div className="flex p-2 gap-2 bg-slate-800 border-b border-white/5">
+        <div className="flex p-2 gap-2 bg-slate-800 border-b border-white/5 flex-shrink-0">
            <button 
              onClick={() => setTab('GLOBAL')} 
              className={`flex-1 py-2 rounded-lg text-xs font-bold flex flex-col items-center gap-1 transition-colors ${tab === 'GLOBAL' ? 'bg-white/10 text-white' : 'text-white/40'}`}
@@ -165,20 +148,20 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ isOpen, onCl
 
         {/* Info Banner for Coins Tab */}
         {tab === 'COINS' && !isGuest && (
-            <div className="bg-slate-800 px-4 py-2 border-b border-white/5 text-[10px] text-white/50 text-center">
+            <div className="bg-slate-800 px-4 py-2 border-b border-white/5 text-[10px] text-white/50 text-center flex-shrink-0">
                 *Only coins earned from Classic Mode gameplay are counted.
             </div>
         )}
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-900 pb-20 min-h-0 touch-pan-y relative">
+        <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-900 pb-20 min-h-0 touch-pan-y overscroll-contain relative">
            
            {/* GUEST LOCK OVERLAY */}
            {isGuest && (
               <div className="absolute inset-0 z-10 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
                   <Lock size={48} className="text-indigo-400 mb-4" />
                   <h3 className="text-xl font-bold text-white mb-2">Login Required</h3>
-                  <p className="text-white/60 text-sm mb-6">Connect your Google account to access global rankings.</p>
+                  <p className="text-white/60 text-sm mb-6">Connect your account to access global rankings.</p>
                   <button onClick={onClose} className="px-6 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white font-bold transition-colors">
                       Go Back
                   </button>

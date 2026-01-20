@@ -73,7 +73,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSignIn,
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full bg-black/30 border border-white/10 rounded-lg pl-10 pr-4 py-3 text-white focus:outline-none focus:border-indigo-500 transition-colors"
                   placeholder="name@example.com"
-                  autoComplete="username"
+                  autoComplete="username email"
                   required
                 />
               </div>

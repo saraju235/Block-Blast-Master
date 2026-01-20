@@ -28,7 +28,7 @@ const generateRandomUsername = () => {
   return `${adj}${noun}${num}`;
 };
 
-// Default Stats
+// Default Stats for new users
 const DEFAULT_STATS: UserStats = {
   totalPlayTimeSeconds: 0,
   rankedMatchesPlayed: 0,
@@ -39,7 +39,7 @@ const DEFAULT_STATS: UserStats = {
   challengeWins: 0,
   adsWatched: 0,
   totalCoinsEarned: 0,
-  classicCoinsEarned: 0, 
+  classicCoinsEarned: 0, // New Stat
   classicHighScore: 0,
   offlineHighScore: 0,
   totalLinesCleared: 0,
@@ -47,6 +47,7 @@ const DEFAULT_STATS: UserStats = {
   zeroTilesLosses: 0
 };
 
+// Generate fresh missions
 const generateDailyMissions = (): DailyMission[] => {
   return DAILY_MISSION_TEMPLATES.map((tmpl, index) => ({
     ...tmpl,
@@ -74,6 +75,7 @@ const DEFAULT_USER: UserProfile = {
 
 // --- Hook ---
 export const useGameEngine = () => {
+  // --- Persistent State (Mocking Cloud/Local Storage) ---
   const [user, setUser] = useState<UserProfile>(() => {
     const saved = localStorage.getItem('bbm_user');
     if (saved) {
@@ -100,6 +102,7 @@ export const useGameEngine = () => {
     return (localStorage.getItem('bbm_theme') as ThemeId) || 'default';
   });
 
+  // --- Game State ---
   const [grid, setGrid] = useState<Grid>(createEmptyGrid());
   const [score, setScore] = useState(0);
   const [tray, setTray] = useState<(DraggableBlock | null)[]>([null, null, null]);
@@ -107,32 +110,41 @@ export const useGameEngine = () => {
   const [reviveCount, setReviveCount] = useState(0);
   const [gameMode, setGameMode] = useState<GameMode>('CLASSIC');
   
+  // --- Combo & Animation State ---
   const [comboStreak, setComboStreak] = useState(0);
-  const [animatingCells, setAnimatingCells] = useState<string[]>([]);
+  const [animatingCells, setAnimatingCells] = useState<string[]>([]); // "y,x"
   const [isInputLocked, setIsInputLocked] = useState(false);
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   
+  // --- Special Blocks (Target Cells) ---
   const [targetCells, setTargetCells] = useState<Set<string>>(new Set());
   
+  // --- Challenge Mode State ---
   const [challenge, setChallenge] = useState<ChallengeState>({
     isActive: false,
     stake: 0,
-    timeLeft: 180, 
+    timeLeft: 180, // 3 minutes
     opponent: { name: 'Opponent', score: 0, avatarBg: 'bg-gray-500', isAi: true },
     status: 'FINISHED',
     result: null
   });
 
+  // --- Ads State ---
   const [showInterstitial, setShowInterstitial] = useState(false);
   const [showRewarded, setShowRewarded] = useState(false);
   const [rewardType, setRewardType] = useState<'REVIVE' | 'COINS' | 'THEME' | null>(null);
   const [adsWatchedToday, setAdsWatchedToday] = useState(0);
   const gameTimerRef = useRef<number>(0);
+  
+  // --- Sync State ---
   const isSyncing = useRef(false);
+  const isProfileLoaded = useRef(false); // CRITICAL: Prevents overwriting cloud data with local empty state
 
+  // --- Theme Access ---
   const currentTheme: Theme = THEMES[activeThemeId] || THEMES['default'];
   const currentLevel = Math.max(1, Math.min(10, Math.floor(score / 800) + 1));
 
+  // --- Block Generator with Difficulty ---
   const getWeightedBlock = useCallback((level: number): DraggableBlock => {
     const palette = currentTheme.blockPalette;
     const color = palette[Math.floor(Math.random() * palette.length)];
@@ -163,6 +175,7 @@ export const useGameEngine = () => {
   }, [currentTheme]);
 
   
+  // --- Daily Reward Logic ---
   const today = getTodayDateString();
   const isDailyRewardAvailable = user.lastDailyRewardClaim !== today;
   
@@ -175,12 +188,20 @@ export const useGameEngine = () => {
     else return 1;
   };
 
+  // --- Effects ---
   useEffect(() => { localStorage.setItem('bbm_user', JSON.stringify(user)); }, [user]);
   useEffect(() => { localStorage.setItem('bbm_settings', JSON.stringify(settings)); }, [settings]);
   useEffect(() => { localStorage.setItem('bbm_theme', activeThemeId); }, [activeThemeId]);
 
+  // --- SYNC TO CLOUD ---
   useEffect(() => {
-      if ((!user.isGoogleLinked && !user.email) || isSyncing.current) return;
+      // 1. If user is not logged in, do not sync
+      if (!user.isGoogleLinked && !user.email) return;
+      // 2. If already syncing, wait
+      if (isSyncing.current) return;
+      // 3. CRITICAL: If we haven't loaded the profile from cloud yet, DO NOT SYNC.
+      // This prevents the "Login -> Local Default overwrites Cloud Data" bug.
+      if (!isProfileLoaded.current) return;
 
       const syncToCloud = async () => {
           const { data: { session } } = await supabase.auth.getSession();
@@ -206,7 +227,8 @@ export const useGameEngine = () => {
           if (error) {
               console.error('Error syncing profile:', error);
           }
-          isSyncing.current = false;
+          // Slight delay to prevent rapid-fire syncs
+          setTimeout(() => { isSyncing.current = false; }, 1000);
       };
 
       const timer = setTimeout(syncToCloud, 2000); 
@@ -231,6 +253,91 @@ export const useGameEngine = () => {
          }));
      }
   }, [today, user.missionDate]);
+
+  // --- Profile Loading Logic ---
+  const fetchAndSetProfile = async (userId: string, email: string) => {
+      isSyncing.current = true; // Lock sync so we don't overwrite while fetching
+      try {
+          const { data, error } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', userId)
+              .single();
+
+          if (data) {
+              // Found Cloud Profile -> LOAD IT
+              setUser({
+                  ...DEFAULT_USER, // Ensure shape
+                  username: data.username || generateRandomUsername(),
+                  avatarUrl: data.avatar_url,
+                  coins: data.coins ?? 100,
+                  highScore: data.high_score ?? 0,
+                  stats: data.stats || DEFAULT_STATS,
+                  inventory: data.inventory || { themes: ['default'] },
+                  isGoogleLinked: true,
+                  email: email,
+                  hasCompletedOnboarding: true,
+                  dailyMissions: data.daily_missions || generateDailyMissions(),
+                  lastDailyRewardClaim: data.last_daily_reward_claim || '',
+                  dailyStreak: data.daily_streak || 0,
+                  // Keep local claimed achievements if they match? No, cloud source of truth.
+                  claimedAchievements: [] 
+              });
+              isProfileLoaded.current = true; // Mark safe to sync
+          } else {
+              // No Cloud Profile -> CREATE from Local
+              const newProfile = {
+                  id: userId,
+                  username: user.username,
+                  coins: user.coins,
+                  stats: user.stats,
+                  high_score: user.highScore,
+                  inventory: user.inventory,
+                  created_at: new Date()
+              };
+              
+              const { error: insertError } = await supabase.from('profiles').insert(newProfile);
+              
+              if (!insertError) {
+                  setUser(prev => ({
+                      ...prev,
+                      isGoogleLinked: true,
+                      email: email,
+                      hasCompletedOnboarding: true
+                  }));
+                  isProfileLoaded.current = true; // Mark safe to sync
+              }
+          }
+      } catch (err) {
+          console.error("Profile load failed:", err);
+          // If fetch fails completely (network), allow play but maybe don't enable sync?
+          setUser(prev => ({ ...prev, hasCompletedOnboarding: true, email: email, isGoogleLinked: true }));
+      } finally {
+          setTimeout(() => { isSyncing.current = false; }, 500);
+      }
+  };
+
+  // --- Auth Listeners ---
+  useEffect(() => {
+    // Check initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+         fetchAndSetProfile(session.user.id, session.user.email || '');
+      }
+    });
+
+    // Listen for auth changes (like OAuth redirects)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+         fetchAndSetProfile(session.user.id, session.user.email || '');
+      } else if (event === 'SIGNED_OUT') {
+         isProfileLoaded.current = false;
+         setUser({ ...DEFAULT_USER, username: generateRandomUsername() });
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const trackEvent = (key: keyof UserStats, amount: number = 1) => {
      setUser(prev => ({
@@ -332,85 +439,9 @@ export const useGameEngine = () => {
     return false;
   };
 
-  const fetchAndSetProfile = async (userId: string, email: string) => {
-      isSyncing.current = true;
-      try {
-          const { data, error } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', userId)
-              .single();
-
-          if (data) {
-              setUser({
-                  ...DEFAULT_USER, 
-                  username: data.username || generateRandomUsername(),
-                  avatarUrl: data.avatar_url,
-                  coins: data.coins ?? 100,
-                  highScore: data.high_score ?? 0,
-                  stats: data.stats || DEFAULT_STATS,
-                  inventory: data.inventory || { themes: ['default'] },
-                  isGoogleLinked: true,
-                  email: email,
-                  hasCompletedOnboarding: true,
-                  dailyMissions: data.daily_missions || generateDailyMissions(),
-                  lastDailyRewardClaim: data.last_daily_reward_claim || '',
-                  dailyStreak: data.daily_streak || 0
-              });
-          } else {
-              const newProfile = {
-                  id: userId,
-                  username: generateRandomUsername(),
-                  coins: 100,
-                  stats: DEFAULT_STATS,
-                  created_at: new Date()
-              };
-              
-              const { error: insertError } = await supabase.from('profiles').insert(newProfile);
-              
-              if (!insertError) {
-                  setUser({
-                      ...DEFAULT_USER,
-                      username: newProfile.username,
-                      isGoogleLinked: true,
-                      email: email,
-                      hasCompletedOnboarding: true
-                  });
-              }
-          }
-      } catch (err) {
-          console.error("Profile load failed:", err);
-          setUser(prev => ({ ...prev, hasCompletedOnboarding: true, email: email, isGoogleLinked: true }));
-      } finally {
-          setTimeout(() => { isSyncing.current = false; }, 1000);
-      }
-  };
-
-  // --- Auth Listeners for Google Sign In / Redirects ---
-  useEffect(() => {
-    // Check initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        if (!user.isGoogleLinked && !user.email) {
-             fetchAndSetProfile(session.user.id, session.user.email || '');
-        }
-      }
-    });
-
-    // Listen for auth changes (like OAuth redirects)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-         if (!user.isGoogleLinked && !user.email) {
-             fetchAndSetProfile(session.user.id, session.user.email || '');
-         }
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []); // Run once on mount
-
+  // --- AUTH ACTIONS ---
   const signInWithGoogle = async () => {
-    const { data, error } = await supabase.auth.signInWithOAuth({
+    const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
             queryParams: {
@@ -419,47 +450,34 @@ export const useGameEngine = () => {
             },
         },
     });
-    if (error) console.error(error);
+    if (error) console.error("Google Sign In Error:", error);
   };
   
-  const signInWithEmail = async (email: string, password: string) => {
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) return { error: error.message };
-      
-      if (data.user) {
-        await fetchAndSetProfile(data.user.id, data.user.email!);
-        if (settings.soundEnabled) playSound('click');
-        return { error: null };
-      }
-      return { error: 'No user data returned' };
-    } catch (e: any) {
-      return { error: e.message };
-    }
+  const signInWithEmail = async (email: string, pass: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+    if (error) return { error: error.message };
+    // onAuthStateChange will handle fetching profile
+    return { error: null };
   };
 
-  const signUpWithEmail = async (email: string, password: string) => {
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password
-      });
-      if (error) return { error: error.message };
-      
-      if (data.user) {
-         await fetchAndSetProfile(data.user.id, data.user.email!);
-         if (settings.soundEnabled) playSound('click');
-         return { error: null };
-      }
-      return { error: 'No user data returned' };
-    } catch (e: any) {
-      return { error: e.message };
-    }
+  const signUpWithEmail = async (email: string, pass: string) => {
+    const { data, error } = await supabase.auth.signUp({ 
+        email, 
+        password: pass,
+        options: {
+            data: {
+                username: email.split('@')[0],
+                avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+            }
+        }
+    });
+    if (error) return { error: error.message };
+    return { error: null };
   };
 
   const logout = async () => {
       await supabase.auth.signOut();
-      localStorage.removeItem('bbm_user'); 
+      isProfileLoaded.current = false;
       setUser({
           ...DEFAULT_USER,
           username: generateRandomUsername(),
@@ -480,6 +498,7 @@ export const useGameEngine = () => {
       setUser(prev => ({ ...prev, hasCompletedOnboarding: false }));
   };
 
+  // --- Global Timers ---
   useEffect(() => {
      if (!isGameOver && (gameMode === 'CLASSIC' || (gameMode === 'CHALLENGE' && challenge.status === 'PLAYING'))) {
         const timer = setInterval(() => {
@@ -495,6 +514,7 @@ export const useGameEngine = () => {
      }
   }, [isGameOver, gameMode, challenge.status, showInterstitial, showRewarded]);
 
+  // Challenge Timer
   useEffect(() => {
     if (gameMode !== 'CHALLENGE' || challenge.status !== 'PLAYING' || isGameOver) return;
 
@@ -510,11 +530,6 @@ export const useGameEngine = () => {
 
     return () => clearInterval(timer);
   }, [gameMode, challenge.status, isGameOver]);
-
-  // --- MATCHMAKING & AI LOGIC REMOVED ---
-  // All bot features disabled per request.
-  // 1. No fallback bot in ranked.
-  // 2. No AI scoring simulation.
 
   // Calculate Challenge Result on Game Over
   useEffect(() => {
@@ -824,7 +839,7 @@ export const useGameEngine = () => {
       resetGame();
   };
 
-  const startChallenge = (stake: number, isRoom: boolean = false, roomCode?: string, amIHost: boolean = false) => {
+  const startChallenge = (stake: number, isRoom: boolean = false, roomCode?: string, amIHost: boolean = false, opponentName: string = 'Opponent') => {
     const finalStake = isRoom ? 0 : stake;
     
     if (user.coins < finalStake) return false;
@@ -838,29 +853,18 @@ export const useGameEngine = () => {
     if (finalStake > 0) trackEvent('rankedMatchesPlayed', 1);
     else trackEvent('friendlyMatchesPlayed', 1);
 
-    // Initial status differs for private rooms vs Matchmaking
-    // Ranked (stake > 0, no roomCode) -> MATCHMAKING (will wait 30s)
-    // Friendly Room (isRoom = true) -> Depends if Host or Joiner
-    
-    // For friendly matches, we now skip VS_ANIMATION delay in some cases if managed by UI,
-    // but here we standardise it.
-    // If I am Host (just created and clicked start), start immediately (small delay for animation).
-    // If I am Joiner (joined via code), start immediately.
-    
+    const isAi = isRoom ? false : (finalStake > 0); 
     const initialStatus = isRoom ? 'VS_ANIMATION' : 'MATCHMAKING';
-    
-    // For friendly matches, we simulate a "Human" opponent name if not provided (though UI usually provides it contextually, here we fake it if missing)
-    const opponentName = isRoom ? 'Opponent' : 'Opponent'; 
 
     setChallenge({
       isActive: true,
       stake: finalStake,
       timeLeft: 180, 
       opponent: {
-        name: opponentName, 
+        name: opponentName,
         score: 0,
-        avatarBg: isRoom ? 'bg-gradient-to-br from-green-500 to-emerald-600' : 'bg-gray-500',
-        isAi: !isRoom // Bots only in Ranked (non-room)
+        avatarBg: 'bg-gradient-to-br from-red-500 to-orange-500',
+        isAi: isAi 
       },
       roomCode,
       isHost: amIHost, 
@@ -872,12 +876,8 @@ export const useGameEngine = () => {
     resetGame();
     
     if (isRoom) {
-        // Friendly match starts
-        setTimeout(() => {
-            setChallenge(prev => ({ ...prev, status: 'PLAYING' }));
-        }, 3000); 
+        setChallenge(prev => ({ ...prev, status: 'PLAYING' }));
     } 
-    // Ranked match (MATCHMAKING) logic was removed, but UI prevents entry.
 
     return true;
   };

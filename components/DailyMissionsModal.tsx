@@ -35,8 +35,8 @@ export const DailyMissionsModal: React.FC<DailyMissionsModalProps> = ({
           </div>
         </div>
 
-        {/* Content */}
-        <div className="p-4 overflow-y-auto flex-1 min-h-0 space-y-3 custom-scrollbar touch-pan-y">
+        {/* Content - Added touch-pan-y and ensure overflow works */}
+        <div className="p-4 overflow-y-auto flex-1 min-h-0 space-y-3 custom-scrollbar touch-pan-y overscroll-contain">
           {missions.map((mission) => {
             const isCompleted = mission.progress >= mission.target;
             const progressPercent = Math.min((mission.progress / mission.target) * 100, 100);
