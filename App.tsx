@@ -289,8 +289,8 @@ export default function App() {
     setShowDailyReward(false);
   };
   
-  const handleChallengeStart = (stake: number, isRoom?: boolean, roomCode?: string) => {
-    const success = startChallenge(stake, isRoom, roomCode);
+  const handleChallengeStart = (stake: number, isRoom?: boolean, roomCode?: string, amIHost?: boolean, opponentName?: string, matchId?: number, opponentId?: string) => {
+    const success = startChallenge(stake, isRoom, roomCode, amIHost, opponentName, matchId, opponentId);
     if (success) {
       setScreen('GAME');
       setConfirmSurrender(false); // Reset surrender state
@@ -934,7 +934,7 @@ export default function App() {
                          <p className="text-white/60 mb-6">
                            {challenge.status === 'FINISHED' && score < challenge.opponent.score 
                              ? "Better luck next time!" 
-                             : "You surrendered the match."}
+                             : "Match Ended."}
                          </p>
                          <div className="text-sm text-white/40 mb-8">
                             Final Score: {score} vs {challenge.opponent.score}

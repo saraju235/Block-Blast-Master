@@ -79,6 +79,7 @@ export interface DailyMission {
 }
 
 export interface UserProfile {
+  id?: string; // Supabase Auth ID
   username: string;
   avatarUrl?: string;
   email?: string; // Added for Email Auth
@@ -129,6 +130,8 @@ export interface ChallengeState {
   };
   // Room code for friendly matches
   roomCode?: string;
+  matchId?: number; // DB ID
+  opponentId?: string; // UUID of opponent
   isHost?: boolean;
   status: 'MATCHMAKING' | 'VS_ANIMATION' | 'PLAYING' | 'FINISHED';
   result: 'WIN' | 'LOSS' | 'DRAW' | null;

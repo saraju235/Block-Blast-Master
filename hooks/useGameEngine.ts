@@ -135,6 +135,7 @@ export const useGameEngine = () => {
   const [rewardType, setRewardType] = useState<'REVIVE' | 'COINS' | 'THEME' | null>(null);
   const [adsWatchedToday, setAdsWatchedToday] = useState(0);
   const gameTimerRef = useRef<number>(0);
+  const scoreSyncTimeoutRef = useRef<any>(null);
   
   // --- Sync State ---
   const isSyncing = useRef(false);
@@ -193,6 +194,83 @@ export const useGameEngine = () => {
   useEffect(() => { localStorage.setItem('bbm_settings', JSON.stringify(settings)); }, [settings]);
   useEffect(() => { localStorage.setItem('bbm_theme', activeThemeId); }, [activeThemeId]);
 
+  // --- REALTIME SCORE SYNCING (For Friendly Rooms) ---
+  useEffect(() => {
+    if (gameMode !== 'CHALLENGE' || !challenge.matchId || !challenge.roomCode) return;
+    
+    // Clear previous pending update
+    if (scoreSyncTimeoutRef.current) {
+        clearTimeout(scoreSyncTimeoutRef.current);
+    }
+
+    // Debounce the score update to avoid spamming DB
+    scoreSyncTimeoutRef.current = setTimeout(async () => {
+        const field = challenge.isHost ? 'player1_score' : 'player2_score';
+        try {
+            await supabase
+                .from('challenge_matches')
+                .update({ [field]: score })
+                .eq('id', challenge.matchId);
+        } catch (err) {
+            console.error("Failed to sync score:", err);
+        }
+    }, 1000); // 1 second debounce
+
+    return () => clearTimeout(scoreSyncTimeoutRef.current);
+
+  }, [score, gameMode, challenge.matchId, challenge.roomCode, challenge.isHost]);
+
+  // --- REALTIME MATCH LISTENER (Opponent Score & Surrender) ---
+  useEffect(() => {
+    if (gameMode !== 'CHALLENGE' || !challenge.matchId || !challenge.roomCode) return;
+
+    const channel = supabase.channel(`live_match_${challenge.matchId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'challenge_matches',
+          filter: `id=eq.${challenge.matchId}`
+        },
+        (payload) => {
+          const newData = payload.new;
+          
+          // 1. Update Opponent Score
+          // If I am Host (P1), I read P2's score. If I am Guest (P2), I read P1's score.
+          const oppScore = challenge.isHost ? newData.player2_score : newData.player1_score;
+          if (typeof oppScore === 'number') {
+              setChallenge(prev => ({
+                 ...prev,
+                 opponent: { ...prev.opponent, score: oppScore }
+              }));
+          }
+
+          // 2. Check for Win/Surrender
+          // If a winner is declared in DB (via surrender or match end)
+          if (newData.status === 'completed' && newData.winner_id) {
+               // Determine if I am the winner based on current authenticated user ID
+               const amIWinner = newData.winner_id === user.id;
+
+               setChallenge(prev => ({ 
+                   ...prev, 
+                   status: 'FINISHED', 
+                   result: amIWinner ? 'WIN' : 'LOSS' 
+               }));
+               setIsGameOver(true);
+               
+               if (settings.soundEnabled) {
+                   playSound(amIWinner ? 'clear' : 'gameover');
+               }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [gameMode, challenge.matchId, challenge.roomCode, challenge.isHost, user.id, settings.soundEnabled]);
+
+
   // --- SYNC TO CLOUD ---
   useEffect(() => {
       // 1. If user is not logged in, do not sync
@@ -200,7 +278,6 @@ export const useGameEngine = () => {
       // 2. If already syncing, wait
       if (isSyncing.current) return;
       // 3. CRITICAL: If we haven't loaded the profile from cloud yet, DO NOT SYNC.
-      // This prevents the "Login -> Local Default overwrites Cloud Data" bug.
       if (!isProfileLoaded.current) return;
 
       const syncToCloud = async () => {
@@ -227,7 +304,6 @@ export const useGameEngine = () => {
           if (error) {
               console.error('Error syncing profile:', error);
           }
-          // Slight delay to prevent rapid-fire syncs
           setTimeout(() => { isSyncing.current = false; }, 1000);
       };
 
@@ -268,6 +344,7 @@ export const useGameEngine = () => {
               // Found Cloud Profile -> LOAD IT
               setUser({
                   ...DEFAULT_USER, // Ensure shape
+                  id: userId,
                   username: data.username || generateRandomUsername(),
                   avatarUrl: data.avatar_url,
                   coins: data.coins ?? 100,
@@ -280,7 +357,6 @@ export const useGameEngine = () => {
                   dailyMissions: data.daily_missions || generateDailyMissions(),
                   lastDailyRewardClaim: data.last_daily_reward_claim || '',
                   dailyStreak: data.daily_streak || 0,
-                  // Keep local claimed achievements if they match? No, cloud source of truth.
                   claimedAchievements: [] 
               });
               isProfileLoaded.current = true; // Mark safe to sync
@@ -301,6 +377,7 @@ export const useGameEngine = () => {
               if (!insertError) {
                   setUser(prev => ({
                       ...prev,
+                      id: userId,
                       isGoogleLinked: true,
                       email: email,
                       hasCompletedOnboarding: true
@@ -310,8 +387,7 @@ export const useGameEngine = () => {
           }
       } catch (err) {
           console.error("Profile load failed:", err);
-          // If fetch fails completely (network), allow play but maybe don't enable sync?
-          setUser(prev => ({ ...prev, hasCompletedOnboarding: true, email: email, isGoogleLinked: true }));
+          setUser(prev => ({ ...prev, id: userId, hasCompletedOnboarding: true, email: email, isGoogleLinked: true }));
       } finally {
           setTimeout(() => { isSyncing.current = false; }, 500);
       }
@@ -531,7 +607,7 @@ export const useGameEngine = () => {
     return () => clearInterval(timer);
   }, [gameMode, challenge.status, isGameOver]);
 
-  // Calculate Challenge Result on Game Over
+  // Calculate Challenge Result on Game Over (For normal finish)
   useEffect(() => {
     if (isGameOver && gameMode === 'CHALLENGE' && challenge.status !== 'FINISHED') {
        setChallenge(prev => ({ ...prev, status: 'FINISHED' }));
@@ -839,7 +915,15 @@ export const useGameEngine = () => {
       resetGame();
   };
 
-  const startChallenge = (stake: number, isRoom: boolean = false, roomCode?: string, amIHost: boolean = false, opponentName: string = 'Opponent') => {
+  const startChallenge = (
+    stake: number, 
+    isRoom: boolean = false, 
+    roomCode?: string, 
+    amIHost: boolean = false, 
+    opponentName: string = 'Opponent',
+    matchId?: number,
+    opponentId?: string
+  ) => {
     const finalStake = isRoom ? 0 : stake;
     
     if (user.coins < finalStake) return false;
@@ -867,6 +951,8 @@ export const useGameEngine = () => {
         isAi: isAi 
       },
       roomCode,
+      matchId,
+      opponentId,
       isHost: amIHost, 
       status: initialStatus,
       result: null
@@ -876,7 +962,8 @@ export const useGameEngine = () => {
     resetGame();
     
     if (isRoom) {
-        setChallenge(prev => ({ ...prev, status: 'PLAYING' }));
+        // Slight delay for UI transition
+        setTimeout(() => setChallenge(prev => ({ ...prev, status: 'PLAYING' })), 2000);
     } 
 
     return true;
@@ -891,8 +978,24 @@ export const useGameEngine = () => {
       resetGame();
   }
 
-  const surrenderMatch = () => {
+  const surrenderMatch = async () => {
     if (gameMode === 'CHALLENGE' && !isGameOver) {
+        // If it is a real match, notify server that opponent won
+        if (challenge.matchId && challenge.opponentId) {
+            try {
+                await supabase
+                    .from('challenge_matches')
+                    .update({ 
+                        status: 'completed', 
+                        winner_id: challenge.opponentId // Declare opponent as winner
+                    })
+                    .eq('id', challenge.matchId);
+            } catch (err) {
+                console.error("Failed to surrender on server", err);
+            }
+        }
+
+        // Local state update for the person surrendering
         setChallenge(prev => ({ ...prev, status: 'FINISHED', result: 'LOSS' }));
         setIsGameOver(true);
         if (settings.soundEnabled) playSound('gameover');

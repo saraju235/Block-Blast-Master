@@ -8,7 +8,7 @@ interface ChallengeSetupModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: UserProfile;
-  startChallenge: (stake: number, isRoom?: boolean, roomCode?: string, amIHost?: boolean) => boolean;
+  startChallenge: (stake: number, isRoom?: boolean, roomCode?: string, amIHost?: boolean, opponentName?: string, matchId?: number, opponentId?: string) => boolean;
 }
 
 export const ChallengeSetupModal: React.FC<ChallengeSetupModalProps> = ({ 
@@ -19,7 +19,7 @@ export const ChallengeSetupModal: React.FC<ChallengeSetupModalProps> = ({
   if (!isOpen) return null;
 
   const stakes = [100, 200, 300, 500];
-  const isGuest = !user.isGoogleLinked;
+  const isGuest = !user.isGoogleLinked && !user.email;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">

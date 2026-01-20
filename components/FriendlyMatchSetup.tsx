@@ -6,7 +6,7 @@ import { supabase } from '../services/supabase';
 
 interface FriendlyMatchSetupProps {
   user: UserProfile;
-  startChallenge: (stake: number, isRoom?: boolean, roomCode?: string, amIHost?: boolean, opponentName?: string) => boolean;
+  startChallenge: (stake: number, isRoom?: boolean, roomCode?: string, amIHost?: boolean, opponentName?: string, matchId?: number, opponentId?: string) => boolean;
   onClose: () => void;
 }
 
@@ -15,6 +15,8 @@ interface MatchData {
   room_code: string;
   player1_name: string;
   player2_name?: string;
+  player1_id: string;
+  player2_id?: string;
   status: 'waiting' | 'starting' | 'in_progress' | 'completed';
 }
 
@@ -68,7 +70,15 @@ export const FriendlyMatchSetup: React.FC<FriendlyMatchSetupProps> = ({ user, st
             clearInterval(timer);
             const isHost = data.player1_name === user.username;
             const opponentName = isHost ? (data.player2_name || 'Friend') : data.player1_name;
-            startChallenge(0, true, data.room_code, isHost, opponentName);
+            // Determine opponent ID for surrender logic
+            const opponentId = isHost ? data.player2_id : data.player1_id;
+            
+            if (!opponentId) {
+                console.warn("Opponent ID missing, surrender logic might fail");
+            }
+
+            // Start the game with all necessary IDs
+            startChallenge(0, true, data.room_code, isHost, opponentName, data.id, opponentId);
             onClose();
         }
     }, 1000);

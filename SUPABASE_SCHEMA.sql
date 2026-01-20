@@ -33,7 +33,6 @@ create table if not exists public.profiles (
 alter table public.profiles enable row level security;
 
 -- --- PROFILES POLICIES ---
--- Drop existing policies to avoid conflicts on re-run
 drop policy if exists "Public profiles are viewable by everyone." on public.profiles;
 drop policy if exists "Users can insert their own profile." on public.profiles;
 drop policy if exists "Users can update their own profile." on public.profiles;
@@ -68,9 +67,29 @@ create table if not exists public.challenge_matches (
   player2_email text,
   player2_id uuid references auth.users,
   is_player2_ai boolean default false,
+  
+  -- REALTIME SCORE COLUMNS
+  player1_score integer default 0,
+  player2_score integer default 0,
+  winner_id uuid references auth.users,
+
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now())
 );
+
+-- Add columns if they don't exist (Idempotency for existing tables)
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_name = 'challenge_matches' and column_name = 'player1_score') then
+    alter table public.challenge_matches add column player1_score integer default 0;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name = 'challenge_matches' and column_name = 'player2_score') then
+    alter table public.challenge_matches add column player2_score integer default 0;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name = 'challenge_matches' and column_name = 'winner_id') then
+    alter table public.challenge_matches add column winner_id uuid references auth.users;
+  end if;
+end $$;
 
 -- Enable RLS
 alter table public.challenge_matches enable row level security;
@@ -79,7 +98,6 @@ alter table public.challenge_matches enable row level security;
 drop policy if exists "Anyone can read matches" on public.challenge_matches;
 drop policy if exists "Authenticated users can create matches" on public.challenge_matches;
 drop policy if exists "Players can update matches" on public.challenge_matches;
-drop policy if exists "Players can update their matches" on public.challenge_matches; -- cleanup old name
 
 -- 1. Select: Everyone can see matches (needed for joining)
 create policy "Anyone can read matches"
@@ -91,11 +109,7 @@ create policy "Authenticated users can create matches"
   on public.challenge_matches for insert
   with check ( auth.role() = 'authenticated' );
 
--- 3. Update: 
---    Allow update if:
---    a) You are Player 1
---    b) You are Player 2
---    c) Player 2 slot is empty (allows joining)
+-- 3. Update: Players involved can update scores/status
 create policy "Players can update matches"
   on public.challenge_matches for update
   using ( 
@@ -109,10 +123,8 @@ create policy "Players can update matches"
 -- ==============================================================================
 
 begin;
-  -- Remove existing publication to reset (might fail if not owner, but usually fine for supabase_admin)
   drop publication if exists supabase_realtime;
   create publication supabase_realtime;
 commit;
 
--- Add tables to publication
 alter publication supabase_realtime add table public.challenge_matches;
