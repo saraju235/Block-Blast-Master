@@ -3,8 +3,8 @@
 -- 1. SETUP & UTILS
 -- ==============================================================================
 
--- Enable RLS on auth.users (Best Practice)
-alter table auth.users enable row level security;
+-- Note: We do not alter auth.users directly here to avoid permission issues.
+-- RLS on auth.users is typically enabled by default in Supabase.
 
 -- ==============================================================================
 -- 2. PROFILES TABLE
@@ -68,7 +68,8 @@ create table if not exists public.challenge_matches (
   player2_email text,
   player2_id uuid references auth.users,
   is_player2_ai boolean default false,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now())
 );
 
 -- Enable RLS
@@ -108,7 +109,7 @@ create policy "Players can update matches"
 -- ==============================================================================
 
 begin;
-  -- Remove existing publication to reset
+  -- Remove existing publication to reset (might fail if not owner, but usually fine for supabase_admin)
   drop publication if exists supabase_realtime;
   create publication supabase_realtime;
 commit;
