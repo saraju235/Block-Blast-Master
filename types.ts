@@ -1,4 +1,5 @@
 
+
 export type Cell = string | null; // Color hex or null
 export type Grid = Cell[][];
 export type BlockShape = number[][]; // 0/1 matrix
@@ -13,7 +14,7 @@ export interface DraggableBlock extends BlockDefinition {
   instanceId: string;
 }
 
-export type ThemeId = 'default' | 'neon' | 'crystal' | 'dark' | 'cartoon';
+export type ThemeId = 'default' | 'neon' | 'crystal' | 'dark' | 'cartoon' | 'forest';
 
 export interface Theme {
   id: ThemeId;

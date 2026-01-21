@@ -129,6 +129,22 @@ export const THEMES: Record<ThemeId, Theme> = {
     },
     blockPalette: ['#fb7185', '#f472b6', '#c084fc', '#818cf8', '#60a5fa', '#34d399', '#fde047'],
   },
+  // New Theme: Forest
+  forest: {
+    id: 'forest',
+    name: 'Enchanted Forest',
+    price: 1500,
+    isLocked: true,
+    colors: {
+      background: 'bg-green-950',
+      gridBackground: '#14532d',
+      cellEmpty: '#166534',
+      uiPanel: 'rgba(20, 83, 45, 0.9)',
+      text: '#dcfce7',
+      accent: '#4ade80',
+    },
+    blockPalette: ['#86efac', '#22c55e', '#16a34a', '#a3e635', '#facc15', '#fca5a5', '#eab308'],
+  }
 };
 
 export const ACHIEVEMENTS_DATA: AchievementDef[] = [
