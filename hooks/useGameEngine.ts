@@ -334,6 +334,7 @@ export const useGameEngine = () => {
   const fetchAndSetProfile = async (userId: string, email: string) => {
       isSyncing.current = true; // Lock sync so we don't overwrite while fetching
       try {
+          // Attempt to load existing profile
           const { data, error } = await supabase
               .from('profiles')
               .select('*')
@@ -364,7 +365,7 @@ export const useGameEngine = () => {
               // No Cloud Profile -> CREATE from Local
               const newProfile = {
                   id: userId,
-                  username: user.username,
+                  username: user.username && user.username !== 'Player 1' ? user.username : generateRandomUsername(),
                   coins: user.coins,
                   stats: user.stats,
                   high_score: user.highScore,
@@ -374,20 +375,31 @@ export const useGameEngine = () => {
               
               const { error: insertError } = await supabase.from('profiles').insert(newProfile);
               
-              if (!insertError) {
-                  setUser(prev => ({
-                      ...prev,
-                      id: userId,
-                      isGoogleLinked: true,
-                      email: email,
-                      hasCompletedOnboarding: true
-                  }));
-                  isProfileLoaded.current = true; // Mark safe to sync
+              // If insert fails (e.g. duplicate key or network), we should STILL log the user in locally
+              // to prevent getting stuck on onboarding. We will try to sync later.
+              if (insertError) {
+                  console.error("Profile creation error (handled):", insertError);
               }
+
+              setUser(prev => ({
+                  ...prev,
+                  id: userId,
+                  isGoogleLinked: true,
+                  email: email,
+                  hasCompletedOnboarding: true
+              }));
+              isProfileLoaded.current = true; 
           }
       } catch (err) {
           console.error("Profile load failed:", err);
-          setUser(prev => ({ ...prev, id: userId, hasCompletedOnboarding: true, email: email, isGoogleLinked: true }));
+          // Graceful degradation: Allow login even if DB fails
+          setUser(prev => ({ 
+             ...prev, 
+             id: userId, 
+             hasCompletedOnboarding: true, 
+             email: email, 
+             isGoogleLinked: true 
+          }));
       } finally {
           setTimeout(() => { isSyncing.current = false; }, 500);
       }
@@ -1004,7 +1016,7 @@ export const useGameEngine = () => {
 
   const reviveGame = () => {
     const newGrid = grid.map(row => [...row]);
-    for (let i = 0; i < 3; i++) {
+    for (let i = 3; i < 3; i++) {
         const isRow = Math.random() > 0.5;
         const index = Math.floor(Math.random() * BOARD_SIZE);
         if (isRow) {
