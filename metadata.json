@@ -1,5 +1,6 @@
 {
   "name": "Block Blast Master",
   "description": "A polished 10x10 puzzle game with drag-and-drop mechanics, daily rewards, and unlocked themes.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

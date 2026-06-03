@@ -1,4 +1,3 @@
-
 {
   "name": "block-blast-master",
   "private": true,
@@ -8,9 +7,15 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cap:sync": "cap sync",
+    "mobile:build-android": "npm run build && cap add android && cap sync android",
+    "mobile:build-ios": "npm run build && cap add ios && cap sync ios",
+    "mobile:open-android": "cap open android",
+    "mobile:open-ios": "cap open ios"
   },
   "dependencies": {
+    "@capacitor/core": "^8.4.0",
     "@supabase/supabase-js": "^2.39.7",
     "canvas-confetti": "^1.9.2",
     "lucide-react": "^0.344.0",
@@ -18,6 +23,9 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/cli": "^8.4.0",
+    "@capacitor/ios": "^8.4.0",
     "@types/canvas-confetti": "^1.6.4",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",

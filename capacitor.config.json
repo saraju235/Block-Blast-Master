@@ -1,0 +1,8 @@
+{
+  "appId": "com.blockblast.master",
+  "appName": "Block Blast Master",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}
